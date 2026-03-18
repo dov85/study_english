@@ -1311,13 +1311,14 @@ body {
 
 .model-stat-name,
 .day-stat-date {
-  font-weight: 600;
-  color: var(--text-primary, #e5e7eb);
+  font-weight: 700;
+  color: var(--text, #1e293b);
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 0.85rem;
 }
 
 .model-stat-detail,

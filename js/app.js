@@ -1079,7 +1079,7 @@ class EnglishLearningApp {
                 <div class="model-stat-bar" style="width:${pct}%;${pct >= 90 ? 'background:var(--error,#ef4444);' : ''}"></div>
               </div>
               <span class="model-stat-detail">${t.requests}/${m.rpd} req</span>
-              <span class="model-stat-detail">${(t.tokens / 1000).toFixed(1)}K tokens</span>
+              <span class="model-stat-detail">${(t.tokens / 1000).toFixed(1)}K / ${(m.tpm / 1000).toFixed(0)}K tokens</span>
             </div>`;
         }).join('')}
       </div>
