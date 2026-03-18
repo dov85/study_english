@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#4f46e5">
+  <title>English Learning App</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
+</head>
+<body>
+
+  <!-- Streak Display -->
+  <div class="streak-display" id="streak-display" style="opacity: 0;">🔥 0</div>
+
+  <div class="app-container">
+
+    <!-- Header -->
+    <header class="app-header">
+      <h1><span>📚</span> English Learning</h1>
+      <p>Master grammar & vocabulary — one sentence at a time</p>
+    </header>
+
+    <!-- ═══ Screen 1: Category Selection ═══ -->
+    <section class="screen active" id="category-screen">
+      <div class="category-grid">
+        <!-- Dynamically populated -->
+      </div>
+    </section>
+
+    <!-- ═══ Screen 2: Quiz ═══ -->
+    <section class="screen" id="quiz-screen">
+      <!-- Quiz Top Bar -->
+      <div class="quiz-top-bar">
+        <button class="back-btn" id="back-btn">
+          <span>←</span> Back
+        </button>
+        <span class="remaining-count" id="remaining-count"></span>
+        <button class="rules-btn" id="rules-btn">
+          <span>📖</span> Grammar Rules
+        </button>
+      </div>
+
+      <!-- Quiz Header -->
+      <div class="quiz-header">
+        <span class="category-label" id="category-label"></span>
+        <span class="progress-text" id="progress-text"></span>
+      </div>
+
+      <!-- Progress Bar -->
+      <div class="progress-bar-container">
+        <div class="progress-bar" id="progress-bar"></div>
+      </div>
+
+      <!-- Question Card -->
+      <div class="question-card">
+        <div class="question-number" id="question-number"></div>
+        <div class="question-sentence" id="question-sentence"></div>
+        <div class="options-container" id="options-container"></div>
+        <div class="explanation-box" id="explanation-box"></div>
+      </div>
+
+      <!-- Next Button -->
+      <div class="next-btn-container" id="next-btn-container">
+        <button class="next-btn" id="next-btn">Next Question →</button>
+      </div>
+    </section>
+
+    <!-- ═══ Screen 3: Results ═══ -->
+    <section class="screen" id="results-screen">
+      <!-- Dynamically populated -->
+    </section>
+
+  </div>
+
+  <!-- Grammar Rules Modal -->
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal" id="modal-content">
+      <div class="modal-header">
+        <h2 id="modal-title">Grammar Rules</h2>
+        <button class="modal-close" id="modal-close-btn">✕</button>
+      </div>
+      <div class="modal-body" id="modal-body">
+        <!-- Dynamically populated -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm Exit Modal -->
+  <div class="modal-overlay" id="confirm-overlay">
+    <div class="modal modal-sm" id="confirm-content">
+      <div class="modal-header">
+        <h2>Leave Quiz?</h2>
+        <button class="modal-close" id="confirm-close-btn">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="text-align:center; margin-bottom:20px; color: var(--text-muted);">Your progress in this quiz will be lost.</p>
+        <div class="modal-actions">
+          <button class="btn-secondary" id="confirm-continue-btn">Continue Quiz</button>
+          <button class="btn-primary btn-danger" id="confirm-leave-btn">Leave</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Generate Questions Modal -->
+  <div class="modal-overlay" id="generate-overlay">
+    <div class="modal modal-sm" id="generate-content">
+      <div class="modal-header">
+        <h2>✨ Generate Questions</h2>
+        <button class="modal-close" id="generate-close-btn">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="text-align:center; margin-bottom:6px; color: var(--text-muted);">Category: <strong id="generate-category-name"></strong></p>
+        <p style="text-align:center; margin-bottom:12px; color: var(--text-muted); font-size:0.85rem;">This will replace all existing questions<br>with 50 new AI-generated questions.</p>
+        <label style="display:block; text-align:center; margin-bottom:4px; font-size:0.82rem; color:var(--text-muted);">Select Model:</label>
+        <select id="generate-model-select" class="model-select"></select>
+        <div class="generate-status" id="generate-status" style="display:none;"></div>
+        <div class="generate-usage-stats" id="generate-usage-stats" style="display:none;"></div>
+        <div class="modal-actions">
+          <button class="btn-secondary" id="generate-cancel-btn">Cancel</button>
+          <button class="btn-primary" id="generate-submit-btn">🔄 Replace &amp; Generate</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Generation History Modal -->
+  <div class="modal-overlay" id="history-overlay">
+    <div class="modal" id="history-content">
+      <div class="modal-header">
+        <h2>📜 Generation History</h2>
+        <button class="modal-close" id="history-close-btn">✕</button>
+      </div>
+      <div class="modal-body" id="history-body"></div>
+    </div>
+  </div>
+
+  <!-- Create Category Modal -->
+  <div class="modal-overlay" id="create-cat-overlay">
+    <div class="modal" id="create-cat-content">
+      <div class="modal-header">
+        <h2>➕ Create New Category</h2>
+        <button class="modal-close" id="create-cat-close-btn">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="text-align:center; margin-bottom:12px; color: var(--text-muted); font-size:0.88rem;">Describe a grammar topic or category in free text.<br>Gemini AI will create grammar rules and 50 questions.</p>
+        <textarea id="create-cat-input" class="create-cat-textarea" rows="3" placeholder="e.g. Prepositions of time (in, on, at) for beginners..."></textarea>
+        <label style="display:block; text-align:center; margin-bottom:4px; font-size:0.82rem; color:var(--text-muted);">Select Model:</label>
+        <select id="create-cat-model-select" class="model-select"></select>
+        <div class="generate-status" id="create-cat-status" style="display:none;"></div>
+        <div class="generate-usage-stats" id="create-cat-usage-stats" style="display:none;"></div>
+        <div class="create-cat-response" id="create-cat-response" style="display:none;"></div>
+        <div class="modal-actions">
+          <button class="btn-secondary" id="create-cat-cancel-btn">Cancel</button>
+          <button class="btn-primary" id="create-cat-submit-btn">✨ Create Category</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="js/app.js?v=20260318"></script>
+</body>
+</html>
