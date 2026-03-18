@@ -1241,6 +1241,8 @@ body {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 6px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .history-date {
@@ -1324,6 +1326,27 @@ body {
   font-size: 0.78rem;
   margin-left: 12px;
   white-space: nowrap;
+}
+
+.model-stat-bar-wrap {
+  flex: 0 0 60px;
+  height: 6px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 0 8px;
+}
+
+.model-stat-bar {
+  height: 100%;
+  background: var(--primary, #6366f1);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.history-success-badge,
+.history-fail-badge {
+  font-size: 0.75rem;
 }
 
 /* ─── Responsive ─────────────────────────────── */

@@ -8,34 +8,45 @@ const SUPABASE_ANON_KEY = 'sb_publishable_Zct9fKl_HZOMS49pSiY29w_c8FWjIlr';
 // Gemini API key loaded from cloud (app_config table)
 let GEMINI_API_KEY = '';
 
-const GEMINI_MODELS_CONFIG = [
-  { model: 'gemini-3-flash-preview', rpd: 20 },
-  { model: 'gemini-2.5-flash', rpd: 20 },
-  { model: 'gemini-2.5-flash-lite', rpd: 20 },
-  { model: 'gemini-3.1-flash-lite', rpd: 500 }
+// Model config loaded from cloud — fallback defaults from Google AI Studio rate limits
+let GEMINI_MODELS_CONFIG = [
+  { model: 'gemini-3-flash-preview', rpd: 20, tpm: 250000 },
+  { model: 'gemini-2.5-flash', rpd: 20, tpm: 250000 },
+  { model: 'gemini-2.5-flash-lite', rpd: 20, tpm: 250000 },
+  { model: 'gemini-3.1-flash-lite', rpd: 500, tpm: 250000 }
 ];
+
+// Today's usage cache (loaded from cloud)
+let _todayUsageCache = null;
+let _todayUsageCacheTime = 0;
 
 function geminiUrl(model) {
   if (!GEMINI_API_KEY) throw new Error('Gemini API key not loaded. Please refresh the page.');
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
 }
 
-// ─── Load secrets from Supabase app_config ────
+// ─── Load secrets & config from Supabase app_config ────
 async function loadAppConfig() {
   if (!supabaseClient) return;
   try {
     const { data, error } = await supabaseClient
       .from('app_config')
       .select('key, value')
-      .in('key', ['gemini_api_key']);
+      .in('key', ['gemini_api_key', 'gemini_models_config']);
     if (error) throw error;
     if (data) {
       data.forEach(row => {
         if (row.key === 'gemini_api_key') GEMINI_API_KEY = row.value;
+        if (row.key === 'gemini_models_config') {
+          try {
+            const parsed = JSON.parse(row.value);
+            if (Array.isArray(parsed) && parsed.length > 0) GEMINI_MODELS_CONFIG = parsed;
+          } catch {}
+        }
       });
     }
     if (GEMINI_API_KEY) {
-      console.log('✅ Gemini API key loaded from cloud');
+      console.log('✅ Config loaded from cloud');
     } else {
       console.warn('⚠️ Gemini API key not found in app_config table');
     }
@@ -44,52 +55,53 @@ async function loadAppConfig() {
   }
 }
 
-// ─── Daily Gemini Usage Tracking ─────────
-function getUsageDateKey() {
-  return `gemini_usage_${new Date().toISOString().slice(0, 10)}`;
-}
-
-function getGeminiUsage() {
-  try {
-    return JSON.parse(localStorage.getItem(getUsageDateKey())) || {};
-  } catch { return {}; }
-}
-
-function saveGeminiUsage(usage) {
-  const today = getUsageDateKey();
-  // Clean old date keys
-  for (let i = localStorage.length - 1; i >= 0; i--) {
-    const k = localStorage.key(i);
-    if (k && k.startsWith('gemini_usage_') && k !== today) {
-      localStorage.removeItem(k);
-    }
+// ─── Cloud-based Usage Tracking ─────────
+async function getTodayUsageFromCloud(forceRefresh = false) {
+  if (!supabaseClient) return {};
+  // Cache for 10 seconds to avoid hammering the DB
+  const now = Date.now();
+  if (!forceRefresh && _todayUsageCache && (now - _todayUsageCacheTime < 10000)) {
+    return _todayUsageCache;
   }
-  localStorage.setItem(today, JSON.stringify(usage));
+  try {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const { data, error } = await supabaseClient
+      .from('gemini_logs')
+      .select('model, total_tokens')
+      .gte('created_at', todayStart.toISOString());
+    if (error) throw error;
+    // Aggregate per model: count requests + sum tokens
+    const usage = {};
+    (data || []).forEach(row => {
+      if (!usage[row.model]) usage[row.model] = { requests: 0, tokens: 0 };
+      usage[row.model].requests++;
+      usage[row.model].tokens += (row.total_tokens || 0);
+    });
+    _todayUsageCache = usage;
+    _todayUsageCacheTime = now;
+    return usage;
+  } catch (err) {
+    console.warn('Failed to fetch today usage:', err);
+    return _todayUsageCache || {};
+  }
 }
 
-function recordModelUsage(modelName) {
-  const usage = getGeminiUsage();
-  usage[modelName] = (usage[modelName] || 0) + 1;
-  saveGeminiUsage(usage);
+function invalidateUsageCache() {
+  _todayUsageCache = null;
+  _todayUsageCacheTime = 0;
 }
 
-function getAvailableModels() {
-  const usage = getGeminiUsage();
-  return GEMINI_MODELS_CONFIG.filter(m => (usage[m.model] || 0) < m.rpd);
-}
-
-function getTotalRemainingQuota() {
-  const usage = getGeminiUsage();
-  return GEMINI_MODELS_CONFIG.reduce((sum, m) => sum + Math.max(0, m.rpd - (usage[m.model] || 0)), 0);
-}
-
-function getQuotaSummary() {
-  const usage = getGeminiUsage();
-  return GEMINI_MODELS_CONFIG.map(m => {
-    const used = usage[m.model] || 0;
-    const remaining = Math.max(0, m.rpd - used);
-    return { model: m.model, used, limit: m.rpd, remaining };
+function getAvailableModelsSync(todayUsage) {
+  return GEMINI_MODELS_CONFIG.filter(m => {
+    const u = todayUsage[m.model] || { requests: 0, tokens: 0 };
+    return u.requests < m.rpd;
   });
+}
+
+async function getAvailableModels() {
+  const usage = await getTodayUsageFromCloud();
+  return getAvailableModelsSync(usage);
 }
 const hasSupabaseCredentials = typeof SUPABASE_URL === 'string'
   && SUPABASE_URL.startsWith('https://')
@@ -571,7 +583,7 @@ class EnglishLearningApp {
     // History button
     const historyBtn = document.createElement('button');
     historyBtn.className = 'history-btn';
-    historyBtn.innerHTML = `📜 Generation History`;
+    historyBtn.innerHTML = `📜 API Usage History`;
     historyBtn.addEventListener('click', () => this.showHistoryModal());
     grid.appendChild(historyBtn);
 
@@ -581,16 +593,31 @@ class EnglishLearningApp {
     mixedBtn.addEventListener('click', () => this.startQuiz(this.QUIZ_MIXED));
     grid.appendChild(mixedBtn);
 
-    const noQuota = getAvailableModels().length === 0;
+    // Load quota from cloud then render AI buttons
+    getTodayUsageFromCloud().then(todayUsage => {
+      const noQuota = getAvailableModelsSync(todayUsage).length === 0;
 
-    // Create Category button
-    const createCatBtn = document.createElement('button');
-    createCatBtn.className = `create-cat-btn${noQuota ? ' exhausted' : ''}`;
-    createCatBtn.innerHTML = `<span>➕</span> Create New Category with AI`;
-    if (!noQuota) {
-      createCatBtn.addEventListener('click', () => this.showCreateCategoryModal());
-    }
-    grid.appendChild(createCatBtn);
+      // Create Category button
+      const createCatBtn = document.createElement('button');
+      createCatBtn.className = `create-cat-btn${noQuota ? ' exhausted' : ''}`;
+      createCatBtn.innerHTML = `<span>➕</span> Create New Category with AI`;
+      if (!noQuota) {
+        createCatBtn.addEventListener('click', () => this.showCreateCategoryModal());
+      }
+      // Insert before first category card
+      const firstCard = grid.querySelector('.category-card');
+      if (firstCard) grid.insertBefore(createCatBtn, firstCard);
+      else grid.appendChild(createCatBtn);
+
+      // Update generate buttons
+      grid.querySelectorAll('.generate-icon-btn').forEach(btn => {
+        if (noQuota) {
+          btn.classList.add('exhausted');
+          btn.disabled = true;
+          btn.title = 'No AI quota remaining today';
+        }
+      });
+    });
 
     this.categories.forEach(cat => {
       const card = document.createElement('div');
@@ -602,7 +629,7 @@ class EnglishLearningApp {
         <h3>${cat.name}</h3>
         <div class="question-count">${cat.available} available</div>
         <div class="card-actions">
-          <button class="generate-icon-btn${noQuota ? ' exhausted' : ''}" title="${noQuota ? 'No AI quota remaining today' : 'Replace with 50 new questions'}" data-cat="${cat.name}"${noQuota ? ' disabled' : ''}>🔄</button>
+          <button class="generate-icon-btn" title="Replace with 50 new questions" data-cat="${cat.name}">🔄</button>
         </div>
       `;
 
@@ -964,6 +991,7 @@ class EnglishLearningApp {
 
   // ─── Gemini Logging (Cloud) ─────────────────────
   async logGeminiCall(entry) {
+    invalidateUsageCache();
     if (!this.supabase) return;
     try {
       await this.supabase.from('gemini_logs').insert({
@@ -998,113 +1026,78 @@ class EnglishLearningApp {
     }
   }
 
-  // Keep localStorage version as fallback
-  getGenerationHistory() {
-    try {
-      return JSON.parse(localStorage.getItem('generation_history')) || [];
-    } catch { return []; }
-  }
-
   saveGenerationHistory(entry) {
-    const history = this.getGenerationHistory();
-    history.unshift(entry);
-    if (history.length > 100) history.length = 100;
-    localStorage.setItem('generation_history', JSON.stringify(history));
-    // Also save to cloud
+    // Log to cloud (replaces localStorage)
     this.logGeminiCall(entry);
   }
 
   async showHistoryModal() {
     const body = document.getElementById('history-body');
-    body.innerHTML = `<p style="text-align:center; color: var(--text-muted); padding: 24px 0;">⏳ Loading history from cloud...</p>`;
+    body.innerHTML = `<p style="text-align:center; color: var(--text-muted); padding: 24px 0;">⏳ Loading usage data from cloud...</p>`;
     document.getElementById('history-overlay').classList.add('show');
 
-    let logs = await this.getGeminiLogsFromCloud();
-    // Fallback to localStorage if cloud is empty
-    if (logs.length === 0) {
-      const local = this.getGenerationHistory();
-      logs = local.map(h => ({
-        action: h.action || 'generate_questions',
-        category: h.category,
-        model: h.model,
-        prompt_tokens: h.promptTokens || 0,
-        response_tokens: h.responseTokens || 0,
-        total_tokens: h.tokensUsed || 0,
-        questions_generated: h.questionsGenerated || 0,
-        success: true,
-        created_at: h.date
-      }));
-    }
+    const logs = await this.getGeminiLogsFromCloud();
 
     if (logs.length === 0) {
-      body.innerHTML = `<p style="text-align:center; color: var(--text-muted); padding: 24px 0;">No generation history yet.</p>`;
+      body.innerHTML = `<p style="text-align:center; color: var(--text-muted); padding: 24px 0;">No API usage history yet.</p>`;
       return;
     }
 
-    // Summary stats
-    const totalCalls = logs.length;
-    const successCalls = logs.filter(l => l.success).length;
-    const totalQuestions = logs.reduce((s, l) => s + (l.questions_generated || 0), 0);
-    const totalTokens = logs.reduce((s, l) => s + (l.total_tokens || 0), 0);
-    const totalPromptTokens = logs.reduce((s, l) => s + (l.prompt_tokens || 0), 0);
-    const totalResponseTokens = logs.reduce((s, l) => s + (l.response_tokens || 0), 0);
+    // Today's date for filtering
+    const todayStr = new Date().toISOString().slice(0, 10);
 
-    // Per-model breakdown
-    const modelMap = {};
+    // ─── Per-model summary (today + all-time) ───
+    const modelTodayMap = {};
+    const modelAllMap = {};
     logs.forEach(l => {
-      if (!modelMap[l.model]) modelMap[l.model] = { calls: 0, tokens: 0, questions: 0 };
-      modelMap[l.model].calls++;
-      modelMap[l.model].tokens += (l.total_tokens || 0);
-      modelMap[l.model].questions += (l.questions_generated || 0);
+      const day = l.created_at.slice(0, 10);
+      // All-time
+      if (!modelAllMap[l.model]) modelAllMap[l.model] = { requests: 0, tokens: 0 };
+      modelAllMap[l.model].requests++;
+      modelAllMap[l.model].tokens += (l.total_tokens || 0);
+      // Today
+      if (day === todayStr) {
+        if (!modelTodayMap[l.model]) modelTodayMap[l.model] = { requests: 0, tokens: 0 };
+        modelTodayMap[l.model].requests++;
+        modelTodayMap[l.model].tokens += (l.total_tokens || 0);
+      }
     });
 
-    // Per-day breakdown (last 7 days)
-    const dayMap = {};
-    logs.forEach(l => {
-      const day = new Date(l.created_at).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' });
-      if (!dayMap[day]) dayMap[day] = { calls: 0, tokens: 0 };
-      dayMap[day].calls++;
-      dayMap[day].tokens += (l.total_tokens || 0);
-    });
-
-    const actionLabel = (a) => a === 'create_category' ? '➕ Create' : '🔄 Generate';
+    const actionLabel = (a) => a === 'create_category' ? '➕ Create Category' : '🔄 Replace Questions';
 
     body.innerHTML = `
-      <div class="history-summary">
-        <div class="history-summary-stat"><span>📡 Total API Calls:</span><strong>${totalCalls}</strong></div>
-        <div class="history-summary-stat"><span>✅ Successful:</span><strong>${successCalls} / ${totalCalls}</strong></div>
-        <div class="history-summary-stat"><span>📝 Questions Generated:</span><strong>${totalQuestions.toLocaleString()}</strong></div>
-        <div class="history-summary-stat"><span>📊 Total Tokens:</span><strong>${totalTokens.toLocaleString()}</strong></div>
-        <div class="history-summary-stat"><span>📥 Prompt Tokens:</span><strong>${totalPromptTokens.toLocaleString()}</strong></div>
-        <div class="history-summary-stat"><span>📤 Response Tokens:</span><strong>${totalResponseTokens.toLocaleString()}</strong></div>
+      <h3 style="margin:0 0 10px; font-size:1rem; color:var(--text-secondary);">📊 Today's Usage by Model</h3>
+      <div class="history-model-breakdown">
+        ${GEMINI_MODELS_CONFIG.map(m => {
+          const t = modelTodayMap[m.model] || { requests: 0, tokens: 0 };
+          const reqLeft = Math.max(0, m.rpd - t.requests);
+          const pct = Math.min(100, (t.requests / m.rpd) * 100);
+          return `
+            <div class="model-stat-row">
+              <span class="model-stat-name">${this.escapeHtml(m.model)}</span>
+              <div class="model-stat-bar-wrap">
+                <div class="model-stat-bar" style="width:${pct}%;${pct >= 90 ? 'background:var(--error,#ef4444);' : ''}"></div>
+              </div>
+              <span class="model-stat-detail">${t.requests}/${m.rpd} req</span>
+              <span class="model-stat-detail">${(t.tokens / 1000).toFixed(1)}K tokens</span>
+            </div>`;
+        }).join('')}
       </div>
 
-      <h3 style="margin:18px 0 8px; font-size:0.95rem; color:var(--text-secondary);">🤖 Usage by Model</h3>
+      <h3 style="margin:18px 0 10px; font-size:1rem; color:var(--text-secondary);">🤖 All-Time Usage by Model</h3>
       <div class="history-model-breakdown">
-        ${Object.entries(modelMap).map(([model, stats]) => `
+        ${Object.entries(modelAllMap).map(([model, stats]) => `
           <div class="model-stat-row">
             <span class="model-stat-name">${this.escapeHtml(model)}</span>
-            <span class="model-stat-detail">${stats.calls} calls</span>
-            <span class="model-stat-detail">${stats.tokens.toLocaleString()} tokens</span>
-            <span class="model-stat-detail">${stats.questions} q's</span>
+            <span class="model-stat-detail">${stats.requests} req</span>
+            <span class="model-stat-detail">${(stats.tokens / 1000).toFixed(1)}K tokens</span>
           </div>
         `).join('')}
       </div>
 
-      <h3 style="margin:18px 0 8px; font-size:0.95rem; color:var(--text-secondary);">📅 Usage by Day</h3>
-      <div class="history-day-breakdown">
-        ${Object.entries(dayMap).slice(0, 7).map(([day, stats]) => `
-          <div class="day-stat-row">
-            <span class="day-stat-date">${day}</span>
-            <span class="day-stat-detail">${stats.calls} calls</span>
-            <span class="day-stat-detail">${stats.tokens.toLocaleString()} tokens</span>
-          </div>
-        `).join('')}
-      </div>
-
-      <h3 style="margin:18px 0 8px; font-size:0.95rem; color:var(--text-secondary);">📜 Recent Calls</h3>
+      <h3 style="margin:18px 0 10px; font-size:1rem; color:var(--text-secondary);">📜 All API Calls</h3>
       <div class="history-list">
-        ${logs.slice(0, 50).map(l => {
+        ${logs.map(l => {
           const d = new Date(l.created_at);
           const dateStr = d.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' });
           const timeStr = d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
@@ -1113,18 +1106,15 @@ class EnglishLearningApp {
               <div class="history-entry-header">
                 <span class="history-date">${dateStr} ${timeStr}</span>
                 <span class="history-action-badge">${actionLabel(l.action)}</span>
-                <span class="history-category">${this.escapeHtml(l.category || '—')}</span>
+                ${l.success ? '<span class="history-success-badge">✅</span>' : '<span class="history-fail-badge">❌</span>'}
               </div>
               <div class="history-details">
                 <span>🤖 ${this.escapeHtml(l.model || 'unknown')}</span>
-                <span>📝 ${l.questions_generated || 0} q's</span>
                 <span>📊 ${(l.total_tokens || 0).toLocaleString()} tokens</span>
+                <span>📥 ${(l.prompt_tokens || 0).toLocaleString()} / 📤 ${(l.response_tokens || 0).toLocaleString()}</span>
               </div>
-              <div class="history-details-extra">
-                <span>📥 ${(l.prompt_tokens || 0).toLocaleString()}</span>
-                <span>📤 ${(l.response_tokens || 0).toLocaleString()}</span>
-                ${!l.success ? `<span style="color:var(--error);">❌ ${this.escapeHtml(l.error_message || 'Failed')}</span>` : ''}
-              </div>
+              ${l.category ? `<div class="history-details-extra"><span>📂 ${this.escapeHtml(l.category)}</span></div>` : ''}
+              ${!l.success && l.error_message ? `<div class="history-details-extra"><span style="color:var(--error);">${this.escapeHtml(l.error_message)}</span></div>` : ''}
             </div>`;
         }).join('')}
       </div>
@@ -1136,7 +1126,7 @@ class EnglishLearningApp {
   }
 
   // ─── Create New Category with Gemini ────────
-  showCreateCategoryModal() {
+  async showCreateCategoryModal() {
     const overlay = document.getElementById('create-cat-overlay');
 
     const input = document.getElementById('create-cat-input');
@@ -1155,17 +1145,18 @@ class EnglishLearningApp {
 
     const submitBtn = document.getElementById('create-cat-submit-btn');
     const modelSelect = document.getElementById('create-cat-model-select');
-    const available = getAvailableModels();
-    const usage = getGeminiUsage();
+
+    const todayUsage = await getTodayUsageFromCloud(true);
+    const available = getAvailableModelsSync(todayUsage);
 
     modelSelect.innerHTML = '';
     GEMINI_MODELS_CONFIG.forEach(m => {
-      const used = usage[m.model] || 0;
-      const remaining = Math.max(0, m.rpd - used);
+      const u = todayUsage[m.model] || { requests: 0, tokens: 0 };
+      const reqLeft = Math.max(0, m.rpd - u.requests);
       const opt = document.createElement('option');
       opt.value = m.model;
-      opt.textContent = `${m.model}  (${remaining}/${m.rpd} left)`;
-      opt.disabled = remaining === 0;
+      opt.textContent = `${m.model}  (${reqLeft}/${m.rpd} req | ${(u.tokens / 1000).toFixed(0)}K tokens used)`;
+      opt.disabled = reqLeft === 0;
       modelSelect.appendChild(opt);
     });
 
@@ -1215,10 +1206,11 @@ class EnglishLearningApp {
       return;
     }
 
-    // Check quota
-    const usage = getGeminiUsage();
+    // Check quota from cloud
+    const todayUsage = await getTodayUsageFromCloud(true);
     const modelConfig = GEMINI_MODELS_CONFIG.find(m => m.model === selectedModel);
-    if (!modelConfig || (usage[selectedModel] || 0) >= modelConfig.rpd) {
+    const u = todayUsage[selectedModel] || { requests: 0, tokens: 0 };
+    if (!modelConfig || u.requests >= modelConfig.rpd) {
       statusEl.style.display = 'block';
       statusEl.className = 'generate-status error';
       statusEl.textContent = `⛔ No quota remaining for ${selectedModel}. Choose another model.`;
@@ -1338,10 +1330,8 @@ class EnglishLearningApp {
       usageStats.style.display = 'block';
       usageStats.innerHTML = `
         <div class="usage-stat"><span>🤖 Model:</span><strong>${result.modelUsed}</strong></div>
-        <div class="usage-stat"><span>📝 Questions:</span><strong>${insertedQuestions.length}</strong></div>
-        <div class="usage-stat"><span>📊 Tokens used:</span><strong>${result.tokensUsed.toLocaleString()}</strong></div>
-        <div class="usage-stat"><span>📥 Prompt tokens:</span><strong>${result.promptTokens.toLocaleString()}</strong></div>
-        <div class="usage-stat"><span>📤 Response tokens:</span><strong>${result.responseTokens.toLocaleString()}</strong></div>
+        <div class="usage-stat"><span>� Tokens used:</span><strong>${result.tokensUsed.toLocaleString()}</strong></div>
+        <div class="usage-stat"><span>📥 Prompt / 📤 Response:</span><strong>${result.promptTokens.toLocaleString()} / ${result.responseTokens.toLocaleString()}</strong></div>
       `;
 
       submitBtn.textContent = '✅ Done';
@@ -1445,7 +1435,7 @@ Return ONLY valid JSON as specified in your instructions.`;
 
     const modelsToTry = selectedModel
       ? [{ model: selectedModel }]
-      : getAvailableModels();
+      : await getAvailableModels();
     if (modelsToTry.length === 0) {
       throw new Error('Daily API quota exhausted for all models. Try again tomorrow.');
     }
@@ -1505,7 +1495,6 @@ Return ONLY valid JSON as specified in your instructions.`;
       }
 
       if (response && response.ok) {
-        recordModelUsage(model);
         usedModel = model;
         break;
       }
@@ -1598,7 +1587,7 @@ Return ONLY valid JSON as specified in your instructions.`;
   }
 
   // ─── Generate Questions with Gemini ────────
-  showGenerateModal(category) {
+  async showGenerateModal(category) {
     const overlay = document.getElementById('generate-overlay');
     document.getElementById('generate-category-name').textContent = category;
     overlay.dataset.category = category;
@@ -1612,18 +1601,19 @@ Return ONLY valid JSON as specified in your instructions.`;
 
     const submitBtn = document.getElementById('generate-submit-btn');
     const modelSelect = document.getElementById('generate-model-select');
-    const available = getAvailableModels();
-    const usage = getGeminiUsage();
+
+    const todayUsage = await getTodayUsageFromCloud(true);
+    const available = getAvailableModelsSync(todayUsage);
 
     // Populate model selector
     modelSelect.innerHTML = '';
     GEMINI_MODELS_CONFIG.forEach(m => {
-      const used = usage[m.model] || 0;
-      const remaining = Math.max(0, m.rpd - used);
+      const u = todayUsage[m.model] || { requests: 0, tokens: 0 };
+      const reqLeft = Math.max(0, m.rpd - u.requests);
       const opt = document.createElement('option');
       opt.value = m.model;
-      opt.textContent = `${m.model}  (${remaining}/${m.rpd} left)`;
-      opt.disabled = remaining === 0;
+      opt.textContent = `${m.model}  (${reqLeft}/${m.rpd} req | ${(u.tokens / 1000).toFixed(0)}K tokens used)`;
+      opt.disabled = reqLeft === 0;
       modelSelect.appendChild(opt);
     });
 
@@ -1657,10 +1647,11 @@ Return ONLY valid JSON as specified in your instructions.`;
 
     usageStats.style.display = 'none';
 
-    // Check quota for selected model
-    const usage = getGeminiUsage();
+    // Check quota from cloud
+    const todayUsage = await getTodayUsageFromCloud(true);
     const modelConfig = GEMINI_MODELS_CONFIG.find(m => m.model === selectedModel);
-    if (!modelConfig || (usage[selectedModel] || 0) >= modelConfig.rpd) {
+    const u = todayUsage[selectedModel] || { requests: 0, tokens: 0 };
+    if (!modelConfig || u.requests >= modelConfig.rpd) {
       statusEl.style.display = 'block';
       statusEl.className = 'generate-status error';
       statusEl.textContent = `⛔ No quota remaining for ${selectedModel}. Choose another model.`;
@@ -1738,10 +1729,8 @@ Return ONLY valid JSON as specified in your instructions.`;
       usageStats.style.display = 'block';
       usageStats.innerHTML = `
         <div class="usage-stat"><span>🤖 Model:</span><strong>${genResult.modelUsed}</strong></div>
-        <div class="usage-stat"><span>📝 Questions:</span><strong>${inserted.length}</strong></div>
-        <div class="usage-stat"><span>📊 Tokens used:</span><strong>${genResult.tokensUsed.toLocaleString()}</strong></div>
-        <div class="usage-stat"><span>📥 Prompt tokens:</span><strong>${genResult.promptTokens.toLocaleString()}</strong></div>
-        <div class="usage-stat"><span>📤 Response tokens:</span><strong>${genResult.responseTokens.toLocaleString()}</strong></div>
+        <div class="usage-stat"><span>� Tokens used:</span><strong>${genResult.tokensUsed.toLocaleString()}</strong></div>
+        <div class="usage-stat"><span>📥 Prompt / 📤 Response:</span><strong>${genResult.promptTokens.toLocaleString()} / ${genResult.responseTokens.toLocaleString()}</strong></div>
       `;
 
       submitBtn.textContent = '✅ Done';
@@ -1848,7 +1837,7 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
     // Build model list: use specific model if provided, otherwise available models
     const modelsToTry = specificModel
       ? [{ model: specificModel }]
-      : getAvailableModels();
+      : await getAvailableModels();
     if (modelsToTry.length === 0) {
       throw new Error('Daily API quota exhausted for all models. Try again tomorrow.');
     }
@@ -1910,7 +1899,6 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
       }
 
       if (response && response.ok) {
-        recordModelUsage(model);
         usedModel = model;
         break;
       }
