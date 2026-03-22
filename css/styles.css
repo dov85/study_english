@@ -1092,11 +1092,50 @@ body {
   border: 1px solid var(--border);
   background: #fff;
   color: var(--text);
-  font-size: 1.2rem;
-  font-weight: 700;
+  font-size: 0;
   cursor: pointer;
   box-shadow: var(--shadow);
   z-index: 2;
+}
+
+.flashcard-nav .nav-icon {
+  position: relative;
+  display: block;
+  width: 18px;
+  height: 18px;
+  margin: 0 auto;
+}
+
+.flashcard-nav .nav-icon::before,
+.flashcard-nav .nav-icon::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 2px;
+  background: currentColor;
+  border-radius: 4px;
+  transform-origin: center;
+}
+
+.flashcard-next .nav-icon::before {
+  right: 0;
+  transform: translateY(-4px) rotate(35deg);
+}
+
+.flashcard-next .nav-icon::after {
+  right: 0;
+  transform: translateY(2px) rotate(-35deg);
+}
+
+.flashcard-prev .nav-icon::before {
+  left: 0;
+  transform: translateY(-4px) rotate(-35deg);
+}
+
+.flashcard-prev .nav-icon::after {
+  left: 0;
+  transform: translateY(2px) rotate(35deg);
 }
 
 .flashcard-prev {
