@@ -117,6 +117,8 @@ class EnglishLearningApp {
     this.MAX_QUIZ_QUESTIONS = 50;
     this.QUIZ_ALL = '__all__';
     this.QUIZ_MIXED = '__mixed__';
+    this.VOCAB_FLASHCARDS = '__vocab_flashcards__';
+    this.VOCAB_STORAGE_KEY = 'english-app-vocab-deck';
 
     this.questions = [];
     this.questionCatalog = [];
@@ -133,6 +135,11 @@ class EnglishLearningApp {
     this.currentQuizKey = this.QUIZ_ALL;
     this.categories = [];
     this.progress = {};
+    this.vocabDeck = [];
+    this.currentFlashcards = [];
+    this.currentFlashcardIndex = 0;
+    this.flashcardShowTranslation = false;
+    this.wordPickerCategory = null;
     this.supabase = supabaseClient;
     this.loadedFromRemote = false;
     this.grammarRules = {};
@@ -318,6 +325,7 @@ class EnglishLearningApp {
     this.migrateLocalStorage();
     this.loadQuestionPool();
     this.categories = this.getCategories();
+    this.loadVocabDeck();
     this.loadProgress();
     this.renderCategoryScreen();
     this.updateStreakDisplay();
@@ -425,6 +433,23 @@ class EnglishLearningApp {
     bindClick('create-cat-close-btn', () => this.closeCreateCategoryModal());
     bindClick('create-cat-cancel-btn', () => this.closeCreateCategoryModal());
     bindClick('create-cat-submit-btn', () => this.handleCreateCategory());
+
+    // Word Picker modal
+    bindClick('word-picker-overlay', (e) => {
+      if (e.target === e.currentTarget) this.closeWordPickerModal();
+    });
+    bindClick('word-picker-close-btn', () => this.closeWordPickerModal());
+    bindClick('word-picker-cancel-btn', () => this.closeWordPickerModal());
+    bindClick('word-picker-select-all-btn', () => this.toggleWordPickerSelection(true));
+    bindClick('word-picker-clear-btn', () => this.toggleWordPickerSelection(false));
+    bindClick('word-picker-save-btn', () => this.saveWordPickerSelection());
+
+    // Flashcards screen
+    bindClick('flashcards-back-btn', () => this.goToCategories());
+    bindClick('flashcards-prev-btn', () => this.showPreviousFlashcard());
+    bindClick('flashcards-next-btn', () => this.showNextFlashcard());
+    bindClick('flashcards-toggle-btn', () => this.toggleFlashcardTranslation());
+    bindClick('flashcard', () => this.toggleFlashcardTranslation());
   }
 
   getCategories() {
@@ -475,6 +500,39 @@ class EnglishLearningApp {
     }
     localStorage.setItem('english-app-progress', JSON.stringify(this.progress));
     this.updateCategoryBadges();
+  }
+
+  normalizeWord(word = '') {
+    return String(word).trim().toLowerCase();
+  }
+
+  loadVocabDeck() {
+    try {
+      const saved = localStorage.getItem(this.VOCAB_STORAGE_KEY);
+      const parsed = saved ? JSON.parse(saved) : [];
+      if (!Array.isArray(parsed)) {
+        this.vocabDeck = [];
+        return;
+      }
+
+      this.vocabDeck = parsed
+        .filter(item => item && item.word && item.translation)
+        .map(item => ({
+          word: this.normalizeWord(item.word),
+          translation: String(item.translation).trim(),
+          sourceCategory: item.sourceCategory || 'Unknown'
+        }));
+    } catch {
+      this.vocabDeck = [];
+    }
+  }
+
+  saveVocabDeck() {
+    localStorage.setItem(this.VOCAB_STORAGE_KEY, JSON.stringify(this.vocabDeck));
+  }
+
+  getVocabEntryKey(item) {
+    return `${this.normalizeWord(item.word)}||${String(item.translation).trim()}||${item.sourceCategory || ''}`;
   }
 
   loadQuestionPool() {
@@ -593,6 +651,13 @@ class EnglishLearningApp {
     mixedBtn.addEventListener('click', () => this.startQuiz(this.QUIZ_MIXED));
     grid.appendChild(mixedBtn);
 
+    const vocabBtn = document.createElement('button');
+    vocabBtn.className = 'all-categories-btn';
+    vocabBtn.style.background = 'linear-gradient(135deg, #0ea5e9, #0284c7)';
+    vocabBtn.innerHTML = `<span>🗂</span> Vocabulary Flashcards (${this.vocabDeck.length} words)`;
+    vocabBtn.addEventListener('click', () => this.startQuiz(this.VOCAB_FLASHCARDS));
+    grid.appendChild(vocabBtn);
+
     // Load quota from cloud then render AI buttons
     getTodayUsageFromCloud().then(todayUsage => {
       const noQuota = getAvailableModelsSync(todayUsage).length === 0;
@@ -629,7 +694,9 @@ class EnglishLearningApp {
         <h3>${cat.name}</h3>
         <div class="question-count">${cat.available} available</div>
         <div class="card-actions">
+          <button class="words-icon-btn" title="Choose words for flashcards" data-cat="${cat.name}">📝</button>
           <button class="generate-icon-btn" title="Replace with 50 new questions" data-cat="${cat.name}">🔄</button>
+          <button class="delete-icon-btn" title="Delete category" data-cat="${cat.name}">🗑</button>
         </div>
       `;
 
@@ -643,6 +710,22 @@ class EnglishLearningApp {
         genBtn.addEventListener('click', (e) => {
           e.stopPropagation();
           this.showGenerateModal(cat.name);
+        });
+      }
+
+      const wordsBtn = card.querySelector('.words-icon-btn');
+      if (wordsBtn) {
+        wordsBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.showWordPickerModal(cat.name);
+        });
+      }
+
+      const deleteBtn = card.querySelector('.delete-icon-btn');
+      if (deleteBtn) {
+        deleteBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await this.deleteCategory(cat.name);
         });
       }
 
@@ -702,6 +785,11 @@ class EnglishLearningApp {
   }
 
   startQuiz(quizKey) {
+    if (quizKey === this.VOCAB_FLASHCARDS) {
+      this.openFlashcardsScreen();
+      return;
+    }
+
     this.currentQuizKey = quizKey || this.QUIZ_ALL;
     this.selectedCategory = this.currentQuizKey.startsWith('__') ? null : this.currentQuizKey;
     this.currentQuestionIndex = 0;
@@ -1962,6 +2050,221 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
 
     if (error) throw new Error(`Supabase insert failed: ${error.message}`);
     return data || [];
+  }
+
+  getWordsFromCategory(categoryName) {
+    const categoryQuestions = this.questionCatalog.filter(q => q.category === categoryName);
+    const wordsMap = new Map();
+
+    categoryQuestions.forEach(question => {
+      const translations = question.translations || {};
+      Object.entries(translations).forEach(([rawWord, translation]) => {
+        const word = this.normalizeWord(rawWord);
+        const tr = String(translation || '').trim();
+        if (!word || !tr) return;
+        if (!wordsMap.has(word)) {
+          wordsMap.set(word, {
+            word,
+            translation: tr,
+            sourceCategory: categoryName
+          });
+        }
+      });
+    });
+
+    return [...wordsMap.values()].sort((a, b) => a.word.localeCompare(b.word));
+  }
+
+  showWordPickerModal(categoryName) {
+    this.wordPickerCategory = categoryName;
+    const words = this.getWordsFromCategory(categoryName);
+
+    document.getElementById('word-picker-category-name').textContent = categoryName;
+
+    const listEl = document.getElementById('word-picker-list');
+    listEl.innerHTML = '';
+
+    if (words.length === 0) {
+      listEl.innerHTML = '<div class="word-picker-empty">No translated words were found in this category yet.</div>';
+      document.getElementById('word-picker-overlay').classList.add('show');
+      return;
+    }
+
+    const existingKeys = new Set(
+      this.vocabDeck
+        .filter(item => item.sourceCategory === categoryName)
+        .map(item => this.getVocabEntryKey(item))
+    );
+
+    words.forEach((item, index) => {
+      const key = this.getVocabEntryKey(item);
+      const row = document.createElement('label');
+      row.className = 'word-picker-item';
+      row.innerHTML = `
+        <span class="word-picker-left">
+          <input type="checkbox" class="word-picker-checkbox" data-word="${this.escapeHtml(item.word)}" data-translation="${this.escapeHtml(item.translation)}" ${existingKeys.has(key) ? 'checked' : ''}>
+          <span class="word-picker-word">${this.escapeHtml(item.word)}</span>
+        </span>
+        <span class="word-picker-translation">${this.escapeHtml(item.translation)}</span>
+      `;
+      row.htmlFor = `word-picker-${index}`;
+      const input = row.querySelector('.word-picker-checkbox');
+      if (input) input.id = `word-picker-${index}`;
+      listEl.appendChild(row);
+    });
+
+    document.getElementById('word-picker-overlay').classList.add('show');
+  }
+
+  closeWordPickerModal() {
+    document.getElementById('word-picker-overlay').classList.remove('show');
+    this.wordPickerCategory = null;
+  }
+
+  toggleWordPickerSelection(checked) {
+    document.querySelectorAll('.word-picker-checkbox').forEach(cb => {
+      cb.checked = checked;
+    });
+  }
+
+  saveWordPickerSelection() {
+    if (!this.wordPickerCategory) {
+      this.closeWordPickerModal();
+      return;
+    }
+
+    const selected = [...document.querySelectorAll('.word-picker-checkbox:checked')].map(cb => ({
+      word: this.normalizeWord(cb.dataset.word || ''),
+      translation: String(cb.dataset.translation || '').trim(),
+      sourceCategory: this.wordPickerCategory
+    })).filter(item => item.word && item.translation);
+
+    const preserved = this.vocabDeck.filter(item => item.sourceCategory !== this.wordPickerCategory);
+    const deduped = new Map();
+    selected.forEach(item => deduped.set(this.getVocabEntryKey(item), item));
+
+    this.vocabDeck = [...preserved, ...deduped.values()];
+    this.saveVocabDeck();
+    this.closeWordPickerModal();
+    this.renderCategoryScreen();
+  }
+
+  openFlashcardsScreen() {
+    this.currentFlashcards = [...this.vocabDeck];
+    this.currentFlashcardIndex = 0;
+    this.flashcardShowTranslation = false;
+
+    this.showScreen('flashcards-screen');
+    this.renderFlashcard();
+  }
+
+  renderFlashcard() {
+    const countEl = document.getElementById('flashcards-count');
+    const cardEl = document.getElementById('flashcard');
+    const controlsEl = document.getElementById('flashcards-controls');
+    const toggleBtn = document.getElementById('flashcards-toggle-btn');
+
+    if (!countEl || !cardEl || !controlsEl || !toggleBtn) return;
+
+    if (!this.currentFlashcards.length) {
+      countEl.textContent = '0 words selected';
+      controlsEl.style.display = 'none';
+      cardEl.innerHTML = `
+        <div>
+          <div class="flashcard-word">No flashcards yet</div>
+          <span class="flashcard-meta">Use 📝 on any category to select words from question sentences.</span>
+        </div>
+      `;
+      return;
+    }
+
+    controlsEl.style.display = 'flex';
+    const total = this.currentFlashcards.length;
+    const current = this.currentFlashcardIndex + 1;
+    const item = this.currentFlashcards[this.currentFlashcardIndex];
+    countEl.textContent = `${current} / ${total}`;
+
+    if (this.flashcardShowTranslation) {
+      cardEl.innerHTML = `
+        <div>
+          <div class="flashcard-translation">${this.escapeHtml(item.translation)}</div>
+          <span class="flashcard-meta">${this.escapeHtml(item.word)} · ${this.escapeHtml(item.sourceCategory)}</span>
+        </div>
+      `;
+      toggleBtn.textContent = 'Show Word';
+    } else {
+      cardEl.innerHTML = `
+        <div>
+          <div class="flashcard-word">${this.escapeHtml(item.word)}</div>
+          <span class="flashcard-meta">${this.escapeHtml(item.sourceCategory)}</span>
+        </div>
+      `;
+      toggleBtn.textContent = 'Show Translation';
+    }
+  }
+
+  toggleFlashcardTranslation() {
+    if (!this.currentFlashcards.length) return;
+    this.flashcardShowTranslation = !this.flashcardShowTranslation;
+    this.renderFlashcard();
+  }
+
+  showNextFlashcard() {
+    if (!this.currentFlashcards.length) return;
+    this.currentFlashcardIndex = (this.currentFlashcardIndex + 1) % this.currentFlashcards.length;
+    this.flashcardShowTranslation = false;
+    this.renderFlashcard();
+  }
+
+  showPreviousFlashcard() {
+    if (!this.currentFlashcards.length) return;
+    this.currentFlashcardIndex = (this.currentFlashcardIndex - 1 + this.currentFlashcards.length) % this.currentFlashcards.length;
+    this.flashcardShowTranslation = false;
+    this.renderFlashcard();
+  }
+
+  async deleteCategory(categoryName) {
+    const confirmed = window.confirm(`Delete category "${categoryName}"?\nThis will remove all questions and grammar rules in this category.`);
+    if (!confirmed) return;
+
+    if (this.supabase) {
+      try {
+        const { error: questionsError } = await this.supabase
+          .from('questions')
+          .delete()
+          .eq('category', categoryName);
+        if (questionsError) throw questionsError;
+
+        const { error: rulesError } = await this.supabase
+          .from('grammar_rules')
+          .delete()
+          .eq('category', categoryName);
+        if (rulesError) throw rulesError;
+      } catch (error) {
+        console.error('Failed to delete category from cloud', error);
+        window.alert(`Could not delete category from cloud: ${error.message}`);
+        return;
+      }
+    }
+
+    const deletedIds = this.questionCatalog
+      .filter(q => q.category === categoryName)
+      .map(q => q.id);
+
+    this.questionCatalog = this.questionCatalog.filter(q => q.category !== categoryName);
+    this.remainingQuestionSet = new Set(this.remainingQuestionIds.filter(id => !deletedIds.includes(id)));
+    this.remainingQuestionIds = [...this.remainingQuestionSet];
+    this.saveQuestionPool();
+
+    delete this.grammarRules[categoryName];
+    delete this.progress[categoryName];
+    localStorage.setItem('english-app-progress', JSON.stringify(this.progress));
+
+    this.vocabDeck = this.vocabDeck.filter(item => item.sourceCategory !== categoryName);
+    this.saveVocabDeck();
+
+    this.categories = this.getCategories();
+    this.renderCategoryScreen();
   }
 
   handleBack() {

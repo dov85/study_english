@@ -926,7 +926,9 @@ body {
 }
 
 .category-card .rules-icon-btn,
-.category-card .generate-icon-btn {
+.category-card .generate-icon-btn,
+.category-card .delete-icon-btn,
+.category-card .words-icon-btn {
   background: var(--primary-light);
   border: none;
   border-radius: 50%;
@@ -956,6 +958,154 @@ body {
   opacity: 0.35;
   cursor: not-allowed;
   pointer-events: none;
+}
+
+.category-card .delete-icon-btn {
+  background: #fee2e2;
+}
+
+.category-card .delete-icon-btn:hover {
+  background: var(--error);
+  color: white;
+  transform: scale(1.1);
+}
+
+.category-card .words-icon-btn:hover {
+  background: #0ea5e9;
+  color: white;
+  transform: scale(1.1);
+}
+
+/* ─── Flashcards Screen ────────────────────── */
+.flashcards-header {
+  text-align: center;
+  margin-bottom: 18px;
+}
+
+.flashcards-header h2 {
+  font-size: 1.4rem;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.flashcards-header p {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.flashcard-wrap {
+  margin: 0 auto 18px;
+  max-width: 520px;
+}
+
+.flashcard {
+  width: 100%;
+  min-height: 220px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  background: linear-gradient(150deg, #ffffff, #eef2ff);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  padding: 30px 24px;
+  transition: var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.flashcard:hover {
+  border-color: var(--primary);
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-2px);
+}
+
+.flashcard-word {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--text);
+  direction: ltr;
+}
+
+.flashcard-translation {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--primary);
+  direction: rtl;
+}
+
+.flashcard-meta {
+  display: block;
+  margin-top: 10px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.flashcards-controls {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.flashcards-controls .btn-primary,
+.flashcards-controls .btn-secondary {
+  min-width: 140px;
+}
+
+/* ─── Word Picker ──────────────────────────── */
+.word-picker-toolbar {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.word-picker-list {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  margin-bottom: 14px;
+  background: var(--bg);
+}
+
+.word-picker-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.word-picker-item:last-child {
+  border-bottom: none;
+}
+
+.word-picker-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.word-picker-word {
+  font-weight: 700;
+  color: var(--text);
+  direction: ltr;
+}
+
+.word-picker-translation {
+  color: var(--primary);
+  font-weight: 600;
+  direction: rtl;
+}
+
+.word-picker-empty {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 18px 10px;
 }
 
 /* ─── Generate Modal ────────────────────────── */
@@ -1525,6 +1675,22 @@ body {
   .history-details {
     flex-wrap: wrap;
     gap: 8px;
+  }
+
+  .flashcard {
+    min-height: 180px;
+    padding: 20px 16px;
+  }
+
+  .flashcard-word,
+  .flashcard-translation {
+    font-size: 1.6rem;
+  }
+
+  .flashcards-controls .btn-primary,
+  .flashcards-controls .btn-secondary {
+    width: 100%;
+    min-width: 0;
   }
 }
 

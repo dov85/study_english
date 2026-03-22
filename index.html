@@ -74,6 +74,31 @@
       <!-- Dynamically populated -->
     </section>
 
+    <!-- ═══ Screen 4: Vocabulary Flashcards ═══ -->
+    <section class="screen" id="flashcards-screen">
+      <div class="quiz-top-bar">
+        <button class="back-btn" id="flashcards-back-btn">
+          <span>←</span> Back
+        </button>
+        <span class="remaining-count" id="flashcards-count"></span>
+      </div>
+
+      <div class="flashcards-header">
+        <h2>🗂 Vocabulary Flashcards</h2>
+        <p>Tap the card to reveal the translation</p>
+      </div>
+
+      <div class="flashcard-wrap" id="flashcard-wrap">
+        <button class="flashcard" id="flashcard" aria-label="Toggle translation"></button>
+      </div>
+
+      <div class="flashcards-controls" id="flashcards-controls">
+        <button class="btn-secondary" id="flashcards-prev-btn">← Previous</button>
+        <button class="btn-primary" id="flashcards-toggle-btn">Show Translation</button>
+        <button class="btn-secondary" id="flashcards-next-btn">Next →</button>
+      </div>
+    </section>
+
   </div>
 
   <!-- Grammar Rules Modal -->
@@ -157,6 +182,30 @@
         <div class="modal-actions">
           <button class="btn-secondary" id="create-cat-cancel-btn">Cancel</button>
           <button class="btn-primary" id="create-cat-submit-btn">✨ Create Category</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Word Picker Modal -->
+  <div class="modal-overlay" id="word-picker-overlay">
+    <div class="modal" id="word-picker-content">
+      <div class="modal-header">
+        <h2>📝 Choose Words for Flashcards</h2>
+        <button class="modal-close" id="word-picker-close-btn">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="text-align:center; margin-bottom:10px; color: var(--text-muted); font-size:0.9rem;">
+          Category: <strong id="word-picker-category-name"></strong>
+        </p>
+        <div class="word-picker-toolbar">
+          <button class="btn-secondary" id="word-picker-select-all-btn">Select All</button>
+          <button class="btn-secondary" id="word-picker-clear-btn">Clear</button>
+        </div>
+        <div class="word-picker-list" id="word-picker-list"></div>
+        <div class="modal-actions">
+          <button class="btn-secondary" id="word-picker-cancel-btn">Cancel</button>
+          <button class="btn-primary" id="word-picker-save-btn">Save Words</button>
         </div>
       </div>
     </div>
