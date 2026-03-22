@@ -817,7 +817,6 @@ class EnglishLearningApp {
         <h3>${cat.name}</h3>
         <div class="question-count">${cat.available} available</div>
         <div class="card-actions">
-          <button class="words-icon-btn" title="Choose words for flashcards" data-cat="${cat.name}">📝</button>
           <button class="generate-icon-btn" title="Replace with 50 new questions" data-cat="${cat.name}">🔄</button>
           <button class="delete-icon-btn" title="Delete category" data-cat="${cat.name}">🗑</button>
         </div>
@@ -833,14 +832,6 @@ class EnglishLearningApp {
         genBtn.addEventListener('click', (e) => {
           e.stopPropagation();
           this.showGenerateModal(cat.name);
-        });
-      }
-
-      const wordsBtn = card.querySelector('.words-icon-btn');
-      if (wordsBtn) {
-        wordsBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this.showWordPickerModal(cat.name);
         });
       }
 
@@ -2317,25 +2308,34 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
   renderFlashcard() {
     const countEl = document.getElementById('flashcards-count');
     const cardEl = document.getElementById('flashcard');
-    const controlsEl = document.getElementById('flashcards-controls');
     const toggleBtn = document.getElementById('flashcards-toggle-btn');
     const removeBtn = document.getElementById('flashcards-remove-btn');
+    const prevBtn = document.getElementById('flashcards-prev-btn');
+    const nextBtn = document.getElementById('flashcards-next-btn');
 
-    if (!countEl || !cardEl || !controlsEl || !toggleBtn || !removeBtn) return;
+    if (!countEl || !cardEl || !toggleBtn || !removeBtn || !prevBtn || !nextBtn) return;
 
     if (!this.currentFlashcards.length) {
       countEl.textContent = '0 words selected';
-      controlsEl.style.display = 'none';
+      toggleBtn.disabled = true;
+      removeBtn.disabled = true;
+      prevBtn.disabled = true;
+      nextBtn.disabled = true;
+      removeBtn.textContent = '🗑 Remove Word';
       cardEl.innerHTML = `
         <div>
           <div class="flashcard-word">No flashcards yet</div>
-          <span class="flashcard-meta">Use 📝 on any category to select words from question sentences.</span>
+          <span class="flashcard-meta">Click any translated word in a question and add it to practice.</span>
         </div>
       `;
       return;
     }
 
-    controlsEl.style.display = 'flex';
+    toggleBtn.disabled = false;
+    removeBtn.disabled = false;
+    prevBtn.disabled = false;
+    nextBtn.disabled = false;
+
     const total = this.currentFlashcards.length;
     const current = this.currentFlashcardIndex + 1;
     const item = this.currentFlashcards[this.currentFlashcardIndex];

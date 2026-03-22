@@ -81,6 +81,10 @@
           <span>←</span> Back
         </button>
         <span class="remaining-count" id="flashcards-count"></span>
+        <div class="flashcards-top-actions">
+          <button class="btn-secondary" id="flashcards-toggle-btn">Show Translation</button>
+          <button class="btn-primary btn-danger" id="flashcards-remove-btn">🗑 Remove Word</button>
+        </div>
       </div>
 
       <div class="flashcards-header">
@@ -89,14 +93,9 @@
       </div>
 
       <div class="flashcard-wrap" id="flashcard-wrap">
+        <button class="flashcard-nav flashcard-prev" id="flashcards-prev-btn" aria-label="Previous word">←</button>
         <button class="flashcard" id="flashcard" aria-label="Toggle translation"></button>
-      </div>
-
-      <div class="flashcards-controls" id="flashcards-controls">
-        <button class="btn-secondary" id="flashcards-prev-btn">← Previous</button>
-        <button class="btn-primary" id="flashcards-toggle-btn">Show Translation</button>
-        <button class="btn-secondary" id="flashcards-next-btn">Next →</button>
-        <button class="btn-primary btn-danger" id="flashcards-remove-btn">🗑 Remove Word</button>
+        <button class="flashcard-nav flashcard-next" id="flashcards-next-btn" aria-label="Next word">→</button>
       </div>
     </section>
 
