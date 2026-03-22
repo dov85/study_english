@@ -152,7 +152,7 @@ class EnglishLearningApp {
     await loadAppConfig();
     this.showLoadingState('Loading questions from cloud…');
     await Promise.all([this.loadQuestions(), this.loadGrammarRules()]);
-    this.init();
+    await this.init();
   }
 
   showLoadingState(message) {
@@ -321,11 +321,11 @@ class EnglishLearningApp {
     }
   }
 
-  init() {
+  async init() {
     this.migrateLocalStorage();
     this.loadQuestionPool();
     this.categories = this.getCategories();
-    this.loadVocabDeck();
+    await this.loadVocabDeck();
     this.loadProgress();
     this.renderCategoryScreen();
     this.updateStreakDisplay();
@@ -450,6 +450,7 @@ class EnglishLearningApp {
     bindClick('flashcards-next-btn', () => this.showNextFlashcard());
     bindClick('flashcards-toggle-btn', () => this.toggleFlashcardTranslation());
     bindClick('flashcard', () => this.toggleFlashcardTranslation());
+    bindClick('flashcards-remove-btn', () => this.removeCurrentFlashcardWord());
   }
 
   getCategories() {
@@ -506,33 +507,146 @@ class EnglishLearningApp {
     return String(word).trim().toLowerCase();
   }
 
-  loadVocabDeck() {
+  async loadVocabDeck() {
+    const localDeck = this.loadVocabDeckFromLocal();
+
+    if (!this.supabase) {
+      this.vocabDeck = localDeck;
+      return;
+    }
+
+    try {
+      const { data, error } = await this.supabase
+        .from('vocab_words')
+        .select('id, word, translation, source_category, created_at')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      this.vocabDeck = (data || [])
+        .filter(item => item && item.word && item.translation)
+        .map(item => ({
+          id: item.id,
+          word: this.normalizeWord(item.word),
+          translation: String(item.translation).trim(),
+          sourceCategory: item.source_category || 'Unknown'
+        }));
+
+      this.saveVocabDeckToLocal();
+      return;
+    } catch (error) {
+      console.warn('Failed to load vocab words from cloud. Using local copy.', error);
+      this.vocabDeck = localDeck;
+    }
+  }
+
+  loadVocabDeckFromLocal() {
     try {
       const saved = localStorage.getItem(this.VOCAB_STORAGE_KEY);
       const parsed = saved ? JSON.parse(saved) : [];
       if (!Array.isArray(parsed)) {
-        this.vocabDeck = [];
-        return;
+        return [];
       }
 
-      this.vocabDeck = parsed
+      return parsed
         .filter(item => item && item.word && item.translation)
         .map(item => ({
+          id: item.id || null,
           word: this.normalizeWord(item.word),
           translation: String(item.translation).trim(),
           sourceCategory: item.sourceCategory || 'Unknown'
         }));
     } catch {
-      this.vocabDeck = [];
+      return [];
     }
   }
 
   saveVocabDeck() {
+    this.saveVocabDeckToLocal();
+  }
+
+  saveVocabDeckToLocal() {
     localStorage.setItem(this.VOCAB_STORAGE_KEY, JSON.stringify(this.vocabDeck));
   }
 
   getVocabEntryKey(item) {
-    return `${this.normalizeWord(item.word)}||${String(item.translation).trim()}||${item.sourceCategory || ''}`;
+    return `${this.normalizeWord(item.word)}||${String(item.translation).trim()}`;
+  }
+
+  async addWordToDeck(word, translation, sourceCategory = 'Question') {
+    const normalized = {
+      word: this.normalizeWord(word),
+      translation: String(translation || '').trim(),
+      sourceCategory: sourceCategory || 'Question'
+    };
+
+    if (!normalized.word || !normalized.translation) {
+      return { added: false, reason: 'invalid' };
+    }
+
+    const key = this.getVocabEntryKey(normalized);
+    const exists = this.vocabDeck.some(item => this.getVocabEntryKey(item) === key);
+    if (exists) {
+      return { added: false, reason: 'exists' };
+    }
+
+    let cloudId = null;
+    if (this.supabase) {
+      try {
+        const { data, error } = await this.supabase
+          .from('vocab_words')
+          .insert({
+            word: normalized.word,
+            translation: normalized.translation,
+            source_category: normalized.sourceCategory
+          })
+          .select('id')
+          .single();
+
+        if (error) throw error;
+        cloudId = data?.id || null;
+      } catch (error) {
+        const msg = String(error?.message || '').toLowerCase();
+        if (msg.includes('duplicate') || msg.includes('unique')) {
+          await this.loadVocabDeck();
+          return { added: false, reason: 'exists' };
+        }
+        console.error('Failed to save vocab word to cloud', error);
+        return { added: false, reason: 'cloud-failed' };
+      }
+    }
+
+    this.vocabDeck.unshift({ ...normalized, id: cloudId });
+    this.saveVocabDeck();
+    return { added: true };
+  }
+
+  async removeWordFromDeck(wordItem) {
+    if (!wordItem || !wordItem.word || !wordItem.translation) return;
+
+    if (this.supabase) {
+      try {
+        let query = this.supabase.from('vocab_words').delete();
+        if (wordItem.id) {
+          query = query.eq('id', wordItem.id);
+        } else {
+          query = query
+            .eq('word', this.normalizeWord(wordItem.word))
+            .eq('translation', String(wordItem.translation).trim());
+        }
+
+        const { error } = await query;
+        if (error) throw error;
+      } catch (error) {
+        console.error('Failed to delete vocab word from cloud', error);
+        window.alert(`Could not delete word from cloud: ${error.message}`);
+        return;
+      }
+    }
+
+    const key = this.getVocabEntryKey(wordItem);
+    this.vocabDeck = this.vocabDeck.filter(item => this.getVocabEntryKey(item) !== key);
+    this.saveVocabDeck();
   }
 
   loadQuestionPool() {
@@ -626,7 +740,14 @@ class EnglishLearningApp {
     grid.innerHTML = '';
 
     if (!this.questionCatalog.length) {
-      grid.innerHTML = `<div style="width:100%;padding:32px;text-align:center;color:var(--text-muted, #6b7280);font-size:1rem;">No questions available. Please verify your Supabase connection or seed data.</div>`;
+      grid.innerHTML = `
+        <div style="width:100%;padding:24px;text-align:center;color:var(--text-muted, #6b7280);font-size:1rem;">No questions available. You can still practice saved vocabulary flashcards.</div>
+        <button class="all-categories-btn" id="empty-vocab-btn" style="background: linear-gradient(135deg, #0ea5e9, #0284c7);"><span>🗂</span> Vocabulary Flashcards (${this.vocabDeck.length} words)</button>
+      `;
+      const emptyVocabBtn = document.getElementById('empty-vocab-btn');
+      if (emptyVocabBtn) {
+        emptyVocabBtn.addEventListener('click', () => this.startQuiz(this.VOCAB_FLASHCARDS));
+      }
       this.showScreen('category-screen');
       return;
     }
@@ -867,7 +988,7 @@ class EnglishLearningApp {
       return text.split(/\b/).map(token => {
         const clean = token.replace(/[^a-zA-Z']/g, '').toLowerCase();
         if (clean && translations[clean]) {
-          return `<span class="translatable-word" data-translation="${this.escapeHtml(translations[clean])}">${this.escapeHtml(token)}</span>`;
+          return `<span class="translatable-word" data-word="${this.escapeHtml(clean)}" data-translation="${this.escapeHtml(translations[clean])}" data-category="${this.escapeHtml(q.category)}">${this.escapeHtml(token)}</span>`;
         }
         return this.escapeHtml(token);
       }).join('');
@@ -877,16 +998,50 @@ class EnglishLearningApp {
 
     // Bind click events on translatable words
     sentenceEl.querySelectorAll('.translatable-word').forEach(el => {
-      el.addEventListener('click', (e) => {
+      el.addEventListener('click', async (e) => {
         e.stopPropagation();
         // Remove any existing tooltip
         document.querySelectorAll('.word-tooltip').forEach(t => t.remove());
+
+        const word = this.normalizeWord(el.dataset.word || el.textContent || '');
+        const translation = String(el.dataset.translation || '').trim();
+        const category = el.dataset.category || q.category;
+        const exists = this.vocabDeck.some(item => this.getVocabEntryKey(item) === this.getVocabEntryKey({ word, translation }));
+
         const tooltip = document.createElement('div');
         tooltip.className = 'word-tooltip';
-        tooltip.textContent = el.dataset.translation;
+        tooltip.innerHTML = `
+          <span class="word-tooltip-translation">${this.escapeHtml(translation)}</span>
+          <div class="word-tooltip-actions">
+            <button class="word-tooltip-add-btn${exists ? ' saved' : ''}" ${exists ? 'disabled' : ''}>${exists ? '✅ Saved' : '➕ Add to Practice'}</button>
+          </div>
+        `;
         el.appendChild(tooltip);
+
+        const addBtn = tooltip.querySelector('.word-tooltip-add-btn');
+        if (addBtn && !exists) {
+          addBtn.addEventListener('click', async (evt) => {
+            evt.stopPropagation();
+            addBtn.disabled = true;
+            addBtn.textContent = '⏳ Saving...';
+            const result = await this.addWordToDeck(word, translation, category);
+            if (result.added) {
+              addBtn.classList.add('saved');
+              addBtn.textContent = '✅ Saved';
+              if (document.getElementById('category-screen')?.classList.contains('active')) {
+                this.renderCategoryScreen();
+              }
+            } else if (result.reason === 'exists') {
+              addBtn.classList.add('saved');
+              addBtn.textContent = '✅ Saved';
+            } else {
+              addBtn.disabled = false;
+              addBtn.textContent = '⚠️ Retry';
+            }
+          });
+        }
+
         setTimeout(() => tooltip.classList.add('show'), 10);
-        setTimeout(() => { tooltip.classList.remove('show'); setTimeout(() => tooltip.remove(), 300); }, 2500);
       });
     });
 
@@ -2127,7 +2282,7 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
     });
   }
 
-  saveWordPickerSelection() {
+  async saveWordPickerSelection() {
     if (!this.wordPickerCategory) {
       this.closeWordPickerModal();
       return;
@@ -2139,12 +2294,10 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
       sourceCategory: this.wordPickerCategory
     })).filter(item => item.word && item.translation);
 
-    const preserved = this.vocabDeck.filter(item => item.sourceCategory !== this.wordPickerCategory);
-    const deduped = new Map();
-    selected.forEach(item => deduped.set(this.getVocabEntryKey(item), item));
+    for (const item of selected) {
+      await this.addWordToDeck(item.word, item.translation, item.sourceCategory);
+    }
 
-    this.vocabDeck = [...preserved, ...deduped.values()];
-    this.saveVocabDeck();
     this.closeWordPickerModal();
     this.renderCategoryScreen();
   }
@@ -2163,8 +2316,9 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
     const cardEl = document.getElementById('flashcard');
     const controlsEl = document.getElementById('flashcards-controls');
     const toggleBtn = document.getElementById('flashcards-toggle-btn');
+    const removeBtn = document.getElementById('flashcards-remove-btn');
 
-    if (!countEl || !cardEl || !controlsEl || !toggleBtn) return;
+    if (!countEl || !cardEl || !controlsEl || !toggleBtn || !removeBtn) return;
 
     if (!this.currentFlashcards.length) {
       countEl.textContent = '0 words selected';
@@ -2183,6 +2337,7 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
     const current = this.currentFlashcardIndex + 1;
     const item = this.currentFlashcards[this.currentFlashcardIndex];
     countEl.textContent = `${current} / ${total}`;
+    removeBtn.textContent = `🗑 Remove "${item.word}"`;
 
     if (this.flashcardShowTranslation) {
       cardEl.innerHTML = `
@@ -2223,6 +2378,24 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
     this.renderFlashcard();
   }
 
+  async removeCurrentFlashcardWord() {
+    if (!this.currentFlashcards.length) return;
+
+    const item = this.currentFlashcards[this.currentFlashcardIndex];
+    const confirmed = window.confirm(`Remove "${item.word}" from practice words?`);
+    if (!confirmed) return;
+
+    await this.removeWordFromDeck(item);
+    this.currentFlashcards = [...this.vocabDeck];
+
+    if (this.currentFlashcardIndex >= this.currentFlashcards.length) {
+      this.currentFlashcardIndex = Math.max(0, this.currentFlashcards.length - 1);
+    }
+
+    this.flashcardShowTranslation = false;
+    this.renderFlashcard();
+  }
+
   async deleteCategory(categoryName) {
     const confirmed = window.confirm(`Delete category "${categoryName}"?\nThis will remove all questions and grammar rules in this category.`);
     if (!confirmed) return;
@@ -2259,9 +2432,6 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
     delete this.grammarRules[categoryName];
     delete this.progress[categoryName];
     localStorage.setItem('english-app-progress', JSON.stringify(this.progress));
-
-    this.vocabDeck = this.vocabDeck.filter(item => item.sourceCategory !== categoryName);
-    this.saveVocabDeck();
 
     this.categories = this.getCategories();
     this.renderCategoryScreen();
