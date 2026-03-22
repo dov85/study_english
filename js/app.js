@@ -446,11 +446,20 @@ class EnglishLearningApp {
 
     // Flashcards screen
     bindClick('flashcards-back-btn', () => this.goToCategories());
+    bindClick('flashcards-add-btn', () => this.showManualWordModal());
     bindClick('flashcards-prev-btn', () => this.showPreviousFlashcard());
     bindClick('flashcards-next-btn', () => this.showNextFlashcard());
     bindClick('flashcards-toggle-btn', () => this.toggleFlashcardTranslation());
     bindClick('flashcard', () => this.toggleFlashcardTranslation());
     bindClick('flashcards-remove-btn', () => this.removeCurrentFlashcardWord());
+
+    // Manual word modal
+    bindClick('manual-word-overlay', (e) => {
+      if (e.target === e.currentTarget) this.closeManualWordModal();
+    });
+    bindClick('manual-word-close-btn', () => this.closeManualWordModal());
+    bindClick('manual-word-cancel-btn', () => this.closeManualWordModal());
+    bindClick('manual-word-save-btn', () => this.handleManualWordSave());
   }
 
   getCategories() {
@@ -2397,6 +2406,79 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
 
     this.flashcardShowTranslation = false;
     this.renderFlashcard();
+  }
+
+  showManualWordModal() {
+    const wordInput = document.getElementById('manual-word-input');
+    const translationInput = document.getElementById('manual-translation-input');
+    const statusEl = document.getElementById('manual-word-status');
+    const saveBtn = document.getElementById('manual-word-save-btn');
+
+    if (!wordInput || !translationInput || !statusEl || !saveBtn) return;
+
+    wordInput.value = '';
+    translationInput.value = '';
+    statusEl.style.display = 'none';
+    statusEl.className = 'generate-status';
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Save Word';
+
+    document.getElementById('manual-word-overlay').classList.add('show');
+    setTimeout(() => wordInput.focus(), 50);
+  }
+
+  closeManualWordModal() {
+    const overlay = document.getElementById('manual-word-overlay');
+    if (overlay) overlay.classList.remove('show');
+  }
+
+  async handleManualWordSave() {
+    const wordInput = document.getElementById('manual-word-input');
+    const translationInput = document.getElementById('manual-translation-input');
+    const statusEl = document.getElementById('manual-word-status');
+    const saveBtn = document.getElementById('manual-word-save-btn');
+
+    if (!wordInput || !translationInput || !statusEl || !saveBtn) return;
+
+    const word = wordInput.value.trim();
+    const translation = translationInput.value.trim();
+
+    if (!word || !translation) {
+      statusEl.style.display = 'block';
+      statusEl.className = 'generate-status error';
+      statusEl.textContent = 'Please enter both the word and its translation.';
+      return;
+    }
+
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving...';
+    statusEl.style.display = 'block';
+    statusEl.className = 'generate-status info';
+    statusEl.textContent = 'Saving word...';
+
+    const result = await this.addWordToDeck(word, translation, 'Manual');
+
+    if (result.added) {
+      statusEl.className = 'generate-status success';
+      statusEl.textContent = result.syncedToCloud ? '✅ Word saved.' : '✅ Word saved locally (cloud unavailable).';
+      this.currentFlashcards = [...this.vocabDeck];
+      this.currentFlashcardIndex = 0;
+      this.flashcardShowTranslation = false;
+      this.renderFlashcard();
+      setTimeout(() => this.closeManualWordModal(), 500);
+      return;
+    }
+
+    if (result.reason === 'exists') {
+      statusEl.className = 'generate-status info';
+      statusEl.textContent = 'This word already exists in your practice list.';
+    } else {
+      statusEl.className = 'generate-status error';
+      statusEl.textContent = 'Could not save the word. Please try again.';
+    }
+
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Save Word';
   }
 
   async deleteCategory(categoryName) {

@@ -82,6 +82,7 @@
         </button>
         <span class="remaining-count" id="flashcards-count"></span>
         <div class="flashcards-top-actions">
+          <button class="btn-secondary" id="flashcards-add-btn">+ Add Word</button>
           <button class="btn-secondary" id="flashcards-toggle-btn">Show Translation</button>
           <button class="btn-primary btn-danger" id="flashcards-remove-btn">🗑 Remove Word</button>
         </div>
@@ -215,7 +216,26 @@
     </div>
   </div>
 
+  <!-- Manual Add Word Modal -->
+  <div class="modal-overlay" id="manual-word-overlay">
+    <div class="modal modal-sm" id="manual-word-content">
+      <div class="modal-header">
+        <h2>➕ Add Practice Word</h2>
+        <button class="modal-close" id="manual-word-close-btn">✕</button>
+      </div>
+      <div class="modal-body">
+        <input id="manual-word-input" class="manual-word-input" type="text" placeholder="Word in English (e.g. deploy)">
+        <input id="manual-translation-input" class="manual-word-input" type="text" placeholder="Translation in Hebrew (e.g. לפרוס)">
+        <div class="generate-status" id="manual-word-status" style="display:none;"></div>
+        <div class="modal-actions">
+          <button class="btn-secondary" id="manual-word-cancel-btn">Cancel</button>
+          <button class="btn-primary" id="manual-word-save-btn">Save Word</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-  <script src="js/app.js?v=20260322"></script>
+  <script src="js/app.js?v=20260322-2"></script>
 </body>
 </html>
