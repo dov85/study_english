@@ -591,6 +591,7 @@ class EnglishLearningApp {
     }
 
     let cloudId = null;
+    let syncedToCloud = false;
     if (this.supabase) {
       try {
         const { data, error } = await this.supabase
@@ -605,20 +606,21 @@ class EnglishLearningApp {
 
         if (error) throw error;
         cloudId = data?.id || null;
+        syncedToCloud = true;
       } catch (error) {
         const msg = String(error?.message || '').toLowerCase();
         if (msg.includes('duplicate') || msg.includes('unique')) {
           await this.loadVocabDeck();
           return { added: false, reason: 'exists' };
         }
-        console.error('Failed to save vocab word to cloud', error);
-        return { added: false, reason: 'cloud-failed' };
+        // Fallback to local save so the button always works for the learner.
+        console.warn('Cloud save failed for vocab word, using local fallback.', error);
       }
     }
 
     this.vocabDeck.unshift({ ...normalized, id: cloudId });
     this.saveVocabDeck();
-    return { added: true };
+    return { added: true, syncedToCloud };
   }
 
   async removeWordFromDeck(wordItem) {
@@ -1020,14 +1022,15 @@ class EnglishLearningApp {
 
         const addBtn = tooltip.querySelector('.word-tooltip-add-btn');
         if (addBtn && !exists) {
-          addBtn.addEventListener('click', async (evt) => {
+          addBtn.addEventListener('pointerdown', async (evt) => {
             evt.stopPropagation();
+            evt.preventDefault();
             addBtn.disabled = true;
             addBtn.textContent = '⏳ Saving...';
             const result = await this.addWordToDeck(word, translation, category);
             if (result.added) {
               addBtn.classList.add('saved');
-              addBtn.textContent = '✅ Saved';
+              addBtn.textContent = result.syncedToCloud ? '✅ Saved' : '✅ Saved (local)';
               if (document.getElementById('category-screen')?.classList.contains('active')) {
                 this.renderCategoryScreen();
               }
