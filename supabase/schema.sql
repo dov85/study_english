@@ -79,10 +79,13 @@ create table if not exists public.vocab_words (
   id uuid primary key default uuid_generate_v4(),
   word text not null,
   translation text not null,
+  pronunciation text,
   source_category text,
   created_at timestamptz not null default now(),
   unique (word, translation)
 );
+
+alter table public.vocab_words add column if not exists pronunciation text;
 
 alter table public.vocab_words enable row level security;
 drop policy if exists "anon can read vocab_words" on public.vocab_words;
@@ -91,3 +94,5 @@ drop policy if exists "anon can insert vocab_words" on public.vocab_words;
 create policy "anon can insert vocab_words" on public.vocab_words for insert to anon with check (true);
 drop policy if exists "anon can delete vocab_words" on public.vocab_words;
 create policy "anon can delete vocab_words" on public.vocab_words for delete to anon using (true);
+drop policy if exists "anon can update vocab_words" on public.vocab_words;
+create policy "anon can update vocab_words" on public.vocab_words for update to anon using (true) with check (true);

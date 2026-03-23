@@ -97,6 +97,7 @@ study-english/
 12. **Progress persistence** — best scores saved per category with completion badges (≥80%)
 13. **Confetti celebration** on scores ≥ 80%
 14. **Responsive mobile-first design** with animations
+15. **Hebrew pronunciation support** for vocabulary words (`pronunciation` field), including AI auto-fill for missing pronunciations
 
 ---
 
@@ -128,6 +129,33 @@ study-english/
 | `translations` | JSONB | Object mapping lowercase English words to Hebrew translations, e.g. `{"the": "ה", "cat": "חתול"}`. Default `{}` |
 | `created_at` | TIMESTAMPTZ | Default `now()` |
 
+### Table: `vocab_words`
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID (PK) | Auto-generated via `uuid_generate_v4()` |
+| `word` | TEXT | NOT NULL (normalized lowercase in app) |
+| `translation` | TEXT | NOT NULL (Hebrew meaning) |
+| `pronunciation` | TEXT | Optional Hebrew pronunciation of the English word |
+| `source_category` | TEXT | Origin category or `Manual` |
+| `created_at` | TIMESTAMPTZ | Default `now()` |
+
+### Table: `gemini_logs`
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID (PK) | Auto-generated via `uuid_generate_v4()` |
+| `action` | TEXT | `generate_questions`, `create_category`, `generate_pronunciations` |
+| `category` | TEXT | Related category or context |
+| `model` | TEXT | Gemini model used |
+| `prompt_tokens` | INT | Prompt token count |
+| `response_tokens` | INT | Response token count |
+| `total_tokens` | INT | Total tokens for the call |
+| `questions_generated` | INT | Reused metric for generated item count |
+| `success` | BOOLEAN | Whether the call succeeded |
+| `error_message` | TEXT | Error details when failed |
+| `created_at` | TIMESTAMPTZ | Default `now()` |
+
 ### RLS Policies
 
 | Table | Role | Operations |
@@ -136,6 +164,8 @@ study-english/
 | `grammar_rules` | service_role | INSERT |
 | `questions` | anon | SELECT, DELETE, INSERT |
 | `questions` | service_role | INSERT |
+| `vocab_words` | anon | SELECT, INSERT, DELETE, UPDATE |
+| `gemini_logs` | anon | SELECT, INSERT |
 
 ---
 
@@ -145,7 +175,7 @@ study-english/
 
 - **SDK:** Loaded from CDN (`@supabase/supabase-js@2`)
 - **Auth mode:** Anonymous (anon key)
-- **Operations:** SELECT (load data), DELETE (remove answered questions), INSERT (upload AI-generated questions)
+- **Operations:** SELECT, INSERT, DELETE, UPDATE (questions, rules, vocab words, usage logs)
 
 ### Google Gemini API
 
@@ -195,7 +225,7 @@ Local seed data, used as fallback if Supabase is unavailable:
 
 ### `index.html` (~170 lines)
 
-App shell with 3 screens and 5 modals. No inline JavaScript event handlers.
+App shell with 4 screens and multiple modals (grammar, confirm, generate, history, create category, word picker, manual word). No inline JavaScript event handlers.
 
 ### `css/styles.css` (~1,420 lines)
 
@@ -209,6 +239,7 @@ All styling. Major sections:
 - Streak display & fire animation
 - Confetti animation
 - Model selector & usage stats
+- Flashcards pronunciation line + AI pronunciation status
 - Responsive breakpoints
 
 ### `scripts/seedSupabase.js`
@@ -245,7 +276,7 @@ PostgreSQL DDL: creates tables, enables RLS, defines access policies.
 | `english-app-version` | String | Data version tag (`v9`). Triggers pool/progress reset on mismatch |
 | `english-app-question-pool` | Array | IDs of remaining unanswered questions |
 | `english-app-progress` | Object | `{ "category_name": best_score_percentage }` |
-| `generation_history` | Array | Up to 100 entries: `{ date, category, model, questionsGenerated, tokensUsed, promptTokens, responseTokens }` |
+| `english-app-vocab-deck` | Array | Local fallback cache for cloud vocabulary data, now including optional pronunciation |
 
 ---
 
@@ -310,11 +341,21 @@ PostgreSQL DDL: creates tables, enables RLS, defines access policies.
 | `handleCreateCategory()` | 4-step flow: validate → Gemini call → insert rules & questions → update UI |
 | `callGeminiForNewCategory(description, model)` | Sends free-text description to Gemini; returns grammar rules + 50 questions or rejection message |
 
-#### Generation History
+#### Vocabulary + Pronunciation
 | Method | Description |
 |--------|------------|
-| `getGenerationHistory()` | Reads from localStorage |
-| `saveGenerationHistory(entry)` | Prepends entry, keeps max 100 |
+| `loadVocabDeck()` / `saveVocabDeck()` | Loads cloud vocabulary and keeps local fallback cache |
+| `addWordToDeck(word, translation, source, pronunciation)` | Saves vocabulary word with optional pronunciation |
+| `handleGeneratePronunciations()` | Sends only words missing pronunciation to Gemini and updates deck |
+| `callGeminiForPronunciations(items)` | Requests Hebrew pronunciation mapping from Gemini |
+| `savePronunciationsToCloud(updates)` | Persists generated pronunciations to Supabase when column is available |
+| `renderFlashcard()` | Displays word, translation, source, and pronunciation |
+
+### Gemini Usage History
+| Method | Description |
+|--------|------------|
+| `logGeminiCall(entry)` | Inserts usage log into `gemini_logs` |
+| `saveGenerationHistory(entry)` | Wrapper that writes generation usage to cloud logs |
 | `showHistoryModal()` | Displays summary + detailed list |
 
 #### UI Rendering
@@ -339,17 +380,20 @@ PostgreSQL DDL: creates tables, enables RLS, defines access policies.
 
 ## UI Screens & Modals
 
-### Screens (3)
+### Screens (4)
 1. **Category Selection** (`#category-screen`) — category grid, total remaining count, history button, mixed quiz button, create category button
 2. **Quiz** (`#quiz-screen`) — progress bar, question with blank, options, explanation, next button
 3. **Results** (`#results-screen`) — score circle, correct/wrong/streak stats, mistake review
+4. **Vocabulary Flashcards** (`#flashcards-screen`) — word/translation card, pronunciation display, AI pronunciation fill button
 
-### Modals (5)
+### Modals (7)
 1. **Grammar Rules** (`#modal-overlay`) — HTML-rendered rules for current category
 2. **Confirm Exit** (`#confirm-overlay`) — "Leave Quiz?" with continue/leave options
 3. **Generate Questions** (`#generate-overlay`) — model selector, status, usage stats, replace button
 4. **Generation History** (`#history-overlay`) — summary totals + detailed per-generation log
 5. **Create Category** (`#create-cat-overlay`) — free-text input, model selector, status, AI response display
+6. **Word Picker** (`#word-picker-overlay`) — choose translated words from category into flashcards
+7. **Manual Word** (`#manual-word-overlay`) — add custom word, translation, and optional pronunciation
 
 ---
 
@@ -410,6 +454,17 @@ PostgreSQL DDL: creates tables, enables RLS, defines access policies.
 8. Step 4: Update local catalog, pool, grammar rules, and categories
 9. Save generation history entry
 10. Auto-close modal → re-render category screen with new category card
+```
+
+### AI Pronunciation Flow
+```
+1. User opens Vocabulary Flashcards screen
+2. User clicks "🗣 Fill Pronunciations (AI)"
+3. App collects only words with missing pronunciation
+4. App sends words to Gemini and asks for Hebrew pronunciation mapping
+5. App updates local vocab deck and saves fallback cache
+6. If Supabase column exists, app updates pronunciation in cloud (`vocab_words.pronunciation`)
+7. Status message shows success/error and usage is logged to `gemini_logs`
 ```
 
 ### Question Categories

@@ -143,6 +143,7 @@ class EnglishLearningApp {
     this.supabase = supabaseClient;
     this.loadedFromRemote = false;
     this.grammarRules = {};
+    this.supportsPronunciationColumn = null;
 
     this.initializeApp();
   }
@@ -447,6 +448,7 @@ class EnglishLearningApp {
     // Flashcards screen
     bindClick('flashcards-back-btn', () => this.goToCategories());
     bindClick('flashcards-add-btn', () => this.showManualWordModal());
+    bindClick('flashcards-pronunciation-btn', () => this.handleGeneratePronunciations());
     bindClick('flashcards-prev-btn', () => this.showPreviousFlashcard());
     bindClick('flashcards-next-btn', () => this.showNextFlashcard());
     bindClick('flashcards-toggle-btn', () => this.toggleFlashcardTranslation());
@@ -516,6 +518,10 @@ class EnglishLearningApp {
     return String(word).trim().toLowerCase();
   }
 
+  normalizePronunciation(value = '') {
+    return String(value || '').trim();
+  }
+
   async loadVocabDeck() {
     const localDeck = this.loadVocabDeckFromLocal();
 
@@ -525,12 +531,35 @@ class EnglishLearningApp {
     }
 
     try {
-      const { data, error } = await this.supabase
+      let data = null;
+      let error = null;
+
+      const withPronunciation = await this.supabase
         .from('vocab_words')
-        .select('id, word, translation, source_category, created_at')
+        .select('id, word, translation, pronunciation, source_category, created_at')
         .order('created_at', { ascending: false });
 
+      data = withPronunciation.data;
+      error = withPronunciation.error;
+
+      if (error) {
+        const msg = String(error.message || '').toLowerCase();
+        if (msg.includes('pronunciation') && msg.includes('does not exist')) {
+          this.supportsPronunciationColumn = false;
+          const legacy = await this.supabase
+            .from('vocab_words')
+            .select('id, word, translation, source_category, created_at')
+            .order('created_at', { ascending: false });
+          data = legacy.data;
+          error = legacy.error;
+        }
+      }
+
       if (error) throw error;
+
+      if (this.supportsPronunciationColumn !== false) {
+        this.supportsPronunciationColumn = true;
+      }
 
       this.vocabDeck = (data || [])
         .filter(item => item && item.word && item.translation)
@@ -538,6 +567,7 @@ class EnglishLearningApp {
           id: item.id,
           word: this.normalizeWord(item.word),
           translation: String(item.translation).trim(),
+          pronunciation: this.normalizePronunciation(item.pronunciation),
           sourceCategory: item.source_category || 'Unknown'
         }));
 
@@ -563,6 +593,7 @@ class EnglishLearningApp {
           id: item.id || null,
           word: this.normalizeWord(item.word),
           translation: String(item.translation).trim(),
+          pronunciation: this.normalizePronunciation(item.pronunciation),
           sourceCategory: item.sourceCategory || 'Unknown'
         }));
     } catch {
@@ -582,10 +613,11 @@ class EnglishLearningApp {
     return `${this.normalizeWord(item.word)}||${String(item.translation).trim()}`;
   }
 
-  async addWordToDeck(word, translation, sourceCategory = 'Question') {
+  async addWordToDeck(word, translation, sourceCategory = 'Question', pronunciation = '') {
     const normalized = {
       word: this.normalizeWord(word),
       translation: String(translation || '').trim(),
+      pronunciation: this.normalizePronunciation(pronunciation),
       sourceCategory: sourceCategory || 'Question'
     };
 
@@ -603,27 +635,60 @@ class EnglishLearningApp {
     let syncedToCloud = false;
     if (this.supabase) {
       try {
+        const insertPayload = {
+          word: normalized.word,
+          translation: normalized.translation,
+          source_category: normalized.sourceCategory
+        };
+        if (this.supportsPronunciationColumn !== false) {
+          insertPayload.pronunciation = normalized.pronunciation || null;
+        }
+
         const { data, error } = await this.supabase
           .from('vocab_words')
-          .insert({
-            word: normalized.word,
-            translation: normalized.translation,
-            source_category: normalized.sourceCategory
-          })
+          .insert(insertPayload)
           .select('id')
           .single();
 
         if (error) throw error;
         cloudId = data?.id || null;
         syncedToCloud = true;
+        if (this.supportsPronunciationColumn !== false) {
+          this.supportsPronunciationColumn = true;
+        }
       } catch (error) {
         const msg = String(error?.message || '').toLowerCase();
         if (msg.includes('duplicate') || msg.includes('unique')) {
           await this.loadVocabDeck();
           return { added: false, reason: 'exists' };
         }
+        if (msg.includes('pronunciation') && msg.includes('does not exist')) {
+          this.supportsPronunciationColumn = false;
+          try {
+            const { data, error: legacyError } = await this.supabase
+              .from('vocab_words')
+              .insert({
+                word: normalized.word,
+                translation: normalized.translation,
+                source_category: normalized.sourceCategory
+              })
+              .select('id')
+              .single();
+            if (legacyError) throw legacyError;
+            cloudId = data?.id || null;
+            syncedToCloud = true;
+          } catch (legacyErr) {
+            const legacyMsg = String(legacyErr?.message || '').toLowerCase();
+            if (legacyMsg.includes('duplicate') || legacyMsg.includes('unique')) {
+              await this.loadVocabDeck();
+              return { added: false, reason: 'exists' };
+            }
+            console.warn('Cloud save failed for vocab word, using local fallback.', legacyErr);
+          }
+        } else {
         // Fallback to local save so the button always works for the learner.
         console.warn('Cloud save failed for vocab word, using local fallback.', error);
+        }
       }
     }
 
@@ -1309,7 +1374,11 @@ class EnglishLearningApp {
       }
     });
 
-    const actionLabel = (a) => a === 'create_category' ? '➕ Create Category' : '🔄 Replace Questions';
+    const actionLabel = (a) => {
+      if (a === 'create_category') return '➕ Create Category';
+      if (a === 'generate_pronunciations') return '🗣 Fill Pronunciations';
+      return '🔄 Replace Questions';
+    };
 
     body.innerHTML = `
       <h3 style="margin:0 0 10px; font-size:1rem; color:var(--text-secondary);">📊 Today's Usage by Model</h3>
@@ -2309,9 +2378,229 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
     this.currentFlashcards = [...this.vocabDeck];
     this.currentFlashcardIndex = 0;
     this.flashcardShowTranslation = false;
+    this.showFlashcardsPronunciationStatus('', '');
 
     this.showScreen('flashcards-screen');
     this.renderFlashcard();
+  }
+
+  showFlashcardsPronunciationStatus(type, message) {
+    const statusEl = document.getElementById('flashcards-pronunciation-status');
+    if (!statusEl) return;
+
+    if (!type || !message) {
+      statusEl.style.display = 'none';
+      statusEl.className = 'generate-status';
+      statusEl.textContent = '';
+      return;
+    }
+
+    statusEl.style.display = 'block';
+    statusEl.className = `generate-status ${type}`;
+    statusEl.textContent = message;
+  }
+
+  getWordsMissingPronunciation() {
+    return this.vocabDeck.filter(item => item && item.word && item.translation && !this.normalizePronunciation(item.pronunciation));
+  }
+
+  async callGeminiForPronunciations(wordItems) {
+    if (!Array.isArray(wordItems) || wordItems.length === 0) {
+      return { map: {}, modelUsed: '', tokensUsed: 0, promptTokens: 0, responseTokens: 0 };
+    }
+
+    const availableModels = await getAvailableModels();
+    if (!availableModels.length) {
+      throw new Error('No AI quota remaining today.');
+    }
+
+    const selectedModel = availableModels[0].model;
+    const url = geminiUrl(selectedModel);
+
+    const systemInstruction = `You are a Hebrew pronunciation assistant for English learners.
+Return ONLY valid JSON in this exact format:
+{
+  "items": [
+    {
+      "word": "english word in lowercase",
+      "pronunciation_he": "hebrew text that describes how to pronounce the english word"
+    }
+  ]
+}
+Rules:
+- Hebrew letters only for pronunciation (you may include apostrophe if needed).
+- Keep each pronunciation short and practical.
+- Preserve the same words that the user sends.
+- If uncertain, still provide the closest common pronunciation in Hebrew.
+- No markdown, no extra keys, no explanations.`;
+
+    const promptItems = wordItems.map(item => ({
+      word: this.normalizeWord(item.word),
+      translation: String(item.translation || '').trim()
+    }));
+
+    const body = JSON.stringify({
+      system_instruction: { parts: [{ text: systemInstruction }] },
+      contents: [{ parts: [{ text: `Create Hebrew pronunciations for these words:\n${JSON.stringify(promptItems)}` }] }],
+      generationConfig: {
+        temperature: 0.2,
+        maxOutputTokens: 2048
+      }
+    });
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body
+    });
+
+    if (!response.ok) {
+      const errBody = await response.text();
+      throw new Error(`Gemini API error ${response.status}: ${errBody.substring(0, 200)}`);
+    }
+
+    const result = await response.json();
+    const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) throw new Error('Empty response from Gemini.');
+
+    const usageMetadata = result?.usageMetadata || {};
+    const promptTokens = usageMetadata.promptTokenCount || 0;
+    const responseTokens = usageMetadata.candidatesTokenCount || usageMetadata.totalTokenCount || 0;
+    const totalTokens = usageMetadata.totalTokenCount || (promptTokens + responseTokens);
+
+    const cleaned = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+    const parsed = JSON.parse(cleaned);
+    if (!parsed || !Array.isArray(parsed.items)) {
+      throw new Error('Gemini returned invalid pronunciation structure.');
+    }
+
+    const map = {};
+    parsed.items.forEach(row => {
+      const word = this.normalizeWord(row?.word || '');
+      const pronunciation = this.normalizePronunciation(row?.pronunciation_he || '');
+      if (!word || !pronunciation) return;
+      map[word] = pronunciation;
+    });
+
+    return {
+      map,
+      modelUsed: selectedModel,
+      tokensUsed: totalTokens,
+      promptTokens,
+      responseTokens
+    };
+  }
+
+  async savePronunciationsToCloud(updates) {
+    if (!this.supabase || this.supportsPronunciationColumn === false || !Array.isArray(updates) || updates.length === 0) {
+      return;
+    }
+
+    for (const item of updates) {
+      try {
+        const pronunciation = this.normalizePronunciation(item.pronunciation);
+        if (!pronunciation) continue;
+
+        let query = this.supabase
+          .from('vocab_words')
+          .update({ pronunciation })
+          .eq('word', this.normalizeWord(item.word))
+          .eq('translation', String(item.translation || '').trim());
+
+        if (item.id) {
+          query = this.supabase
+            .from('vocab_words')
+            .update({ pronunciation })
+            .eq('id', item.id);
+        }
+
+        const { error } = await query;
+        if (error) throw error;
+      } catch (error) {
+        const msg = String(error?.message || '').toLowerCase();
+        if (msg.includes('pronunciation') && msg.includes('does not exist')) {
+          this.supportsPronunciationColumn = false;
+          return;
+        }
+      }
+    }
+
+    this.supportsPronunciationColumn = true;
+  }
+
+  async handleGeneratePronunciations() {
+    const missing = this.getWordsMissingPronunciation();
+    if (!missing.length) {
+      this.showFlashcardsPronunciationStatus('success', 'All words already have pronunciation.');
+      return;
+    }
+
+    const button = document.getElementById('flashcards-pronunciation-btn');
+    if (button) {
+      button.disabled = true;
+      button.textContent = '⏳ Generating...';
+    }
+
+    this.showFlashcardsPronunciationStatus('info', `Sending ${missing.length} words to Gemini...`);
+
+    try {
+      const result = await this.callGeminiForPronunciations(missing);
+      const updates = [];
+
+      this.vocabDeck = this.vocabDeck.map(item => {
+        const key = this.normalizeWord(item.word);
+        const currentPronunciation = this.normalizePronunciation(item.pronunciation);
+        if (currentPronunciation) return item;
+
+        const generated = this.normalizePronunciation(result.map[key]);
+        if (!generated) return item;
+
+        const next = { ...item, pronunciation: generated };
+        updates.push(next);
+        return next;
+      });
+
+      if (!updates.length) {
+        this.showFlashcardsPronunciationStatus('error', 'Gemini did not return valid pronunciations. Try again.');
+        return;
+      }
+
+      this.saveVocabDeck();
+      await this.savePronunciationsToCloud(updates);
+
+      this.currentFlashcards = [...this.vocabDeck];
+      this.renderFlashcard();
+
+      this.showFlashcardsPronunciationStatus(
+        'success',
+        `Added pronunciation for ${updates.length}/${missing.length} words · ${result.modelUsed}`
+      );
+
+      this.saveGenerationHistory({
+        action: 'generate_pronunciations',
+        date: new Date().toISOString(),
+        category: 'vocabulary',
+        model: result.modelUsed,
+        questionsGenerated: updates.length,
+        tokensUsed: result.tokensUsed,
+        promptTokens: result.promptTokens,
+        responseTokens: result.responseTokens
+      });
+    } catch (error) {
+      this.showFlashcardsPronunciationStatus('error', `Could not generate pronunciations: ${error.message}`);
+      this.logGeminiCall({
+        action: 'generate_pronunciations',
+        category: 'vocabulary',
+        model: 'unknown',
+        success: false,
+        errorMessage: error.message
+      });
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = '🗣 Fill Pronunciations (AI)';
+      }
+    }
   }
 
   renderFlashcard() {
@@ -2356,6 +2645,7 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
         <div>
           <div class="flashcard-translation">${this.escapeHtml(item.translation)}</div>
           <span class="flashcard-meta">${this.escapeHtml(item.word)} · ${this.escapeHtml(item.sourceCategory)}</span>
+          <span class="flashcard-pronunciation">🗣 ${this.escapeHtml(item.pronunciation || 'אין הגייה עדיין')}</span>
         </div>
       `;
       toggleBtn.textContent = 'Show Word';
@@ -2363,6 +2653,7 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
       cardEl.innerHTML = `
         <div>
           <div class="flashcard-word">${this.escapeHtml(item.word)}</div>
+          <span class="flashcard-pronunciation">🗣 ${this.escapeHtml(item.pronunciation || 'אין הגייה עדיין')}</span>
           <span class="flashcard-meta">${this.escapeHtml(item.sourceCategory)}</span>
         </div>
       `;
@@ -2411,13 +2702,15 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
   showManualWordModal() {
     const wordInput = document.getElementById('manual-word-input');
     const translationInput = document.getElementById('manual-translation-input');
+    const pronunciationInput = document.getElementById('manual-pronunciation-input');
     const statusEl = document.getElementById('manual-word-status');
     const saveBtn = document.getElementById('manual-word-save-btn');
 
-    if (!wordInput || !translationInput || !statusEl || !saveBtn) return;
+    if (!wordInput || !translationInput || !pronunciationInput || !statusEl || !saveBtn) return;
 
     wordInput.value = '';
     translationInput.value = '';
+    pronunciationInput.value = '';
     statusEl.style.display = 'none';
     statusEl.className = 'generate-status';
     saveBtn.disabled = false;
@@ -2435,13 +2728,15 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
   async handleManualWordSave() {
     const wordInput = document.getElementById('manual-word-input');
     const translationInput = document.getElementById('manual-translation-input');
+    const pronunciationInput = document.getElementById('manual-pronunciation-input');
     const statusEl = document.getElementById('manual-word-status');
     const saveBtn = document.getElementById('manual-word-save-btn');
 
-    if (!wordInput || !translationInput || !statusEl || !saveBtn) return;
+    if (!wordInput || !translationInput || !pronunciationInput || !statusEl || !saveBtn) return;
 
     const word = wordInput.value.trim();
     const translation = translationInput.value.trim();
+    const pronunciation = pronunciationInput.value.trim();
 
     if (!word || !translation) {
       statusEl.style.display = 'block';
@@ -2456,7 +2751,7 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
     statusEl.className = 'generate-status info';
     statusEl.textContent = 'Saving word...';
 
-    const result = await this.addWordToDeck(word, translation, 'Manual');
+    const result = await this.addWordToDeck(word, translation, 'Manual', pronunciation);
 
     if (result.added) {
       statusEl.className = 'generate-status success';

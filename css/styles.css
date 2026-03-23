@@ -1025,6 +1025,8 @@ body {
   display: flex;
   gap: 8px;
   margin-left: auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .flashcards-top-actions .btn-secondary,
@@ -1080,6 +1082,19 @@ body {
   margin-top: 10px;
   font-size: 0.85rem;
   color: var(--text-muted);
+}
+
+.flashcard-pronunciation {
+  display: block;
+  margin-top: 8px;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #0f766e;
+  direction: rtl;
+}
+
+#flashcards-pronunciation-status {
+  margin-top: 10px;
 }
 
 .flashcard-nav {

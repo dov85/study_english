@@ -83,6 +83,7 @@
         <span class="remaining-count" id="flashcards-count"></span>
         <div class="flashcards-top-actions">
           <button class="btn-secondary" id="flashcards-add-btn">+ Add Word</button>
+          <button class="btn-secondary" id="flashcards-pronunciation-btn">🗣 Fill Pronunciations (AI)</button>
           <button class="btn-secondary" id="flashcards-toggle-btn">Show Translation</button>
           <button class="btn-primary btn-danger" id="flashcards-remove-btn">🗑 Remove Word</button>
         </div>
@@ -91,6 +92,7 @@
       <div class="flashcards-header">
         <h2>🗂 Vocabulary Flashcards</h2>
         <p>Tap the card to reveal the translation</p>
+        <div class="generate-status" id="flashcards-pronunciation-status" style="display:none;"></div>
       </div>
 
       <div class="flashcard-wrap" id="flashcard-wrap">
@@ -226,6 +228,7 @@
       <div class="modal-body">
         <input id="manual-word-input" class="manual-word-input" type="text" placeholder="Word in English (e.g. deploy)">
         <input id="manual-translation-input" class="manual-word-input" type="text" placeholder="Translation in Hebrew (e.g. לפרוס)">
+        <input id="manual-pronunciation-input" class="manual-word-input" type="text" placeholder="Pronunciation in Hebrew (optional, e.g. דיפלוי)">
         <div class="generate-status" id="manual-word-status" style="display:none;"></div>
         <div class="modal-actions">
           <button class="btn-secondary" id="manual-word-cancel-btn">Cancel</button>
