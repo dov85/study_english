@@ -3016,24 +3016,14 @@ Rules:
           .from('grammar_rules')
           .delete()
           .eq('category', categoryName);
-
-        if (rulesError) {
-          // Fallback path: explicit question deletion first, then remove rules.
-          const { error: questionsError } = await this.supabase
-            .from('questions')
-            .delete()
-            .eq('category', categoryName);
-          if (questionsError) throw questionsError;
-
-          const { error: retryRulesError } = await this.supabase
-            .from('grammar_rules')
-            .delete()
-            .eq('category', categoryName);
-          if (retryRulesError) throw retryRulesError;
-        }
+        if (rulesError) throw rulesError;
       } catch (error) {
         console.error('Failed to delete category from cloud', error);
-        window.alert(`Could not delete category from cloud: ${error.message}`);
+        const errText = String(error?.message || '').toLowerCase();
+        const hint = (errText.includes('permission') || errText.includes('policy') || errText.includes('rls'))
+          ? '\nHint: add anon DELETE policy for grammar_rules (see supabase/schema.sql).'
+          : '';
+        window.alert(`Could not delete category from cloud: ${error.message}${hint}`);
         return;
       }
     }

@@ -46,6 +46,8 @@ drop policy if exists "anon can delete answered question" on public.questions;
 create policy "anon can delete answered question" on public.questions for delete to anon using (true);
 drop policy if exists "anon can insert grammar rules" on public.grammar_rules;
 create policy "anon can insert grammar rules" on public.grammar_rules for insert to anon with check (true);
+drop policy if exists "anon can delete grammar rules" on public.grammar_rules;
+create policy "anon can delete grammar rules" on public.grammar_rules for delete to anon using (true);
 drop policy if exists "anon can insert questions" on public.questions;
 create policy "anon can insert questions" on public.questions for insert to anon with check (true);
 drop policy if exists "service role upserts rules" on public.grammar_rules;
