@@ -522,6 +522,11 @@ class EnglishLearningApp {
     return String(value || '').trim();
   }
 
+  hasHebrewNiqqud(value = '') {
+    // Hebrew niqqud marks are in U+05B0-U+05C7 (includes shin/sin dots and qamatz qatan).
+    return /[\u05B0-\u05C7]/.test(String(value || ''));
+  }
+
   async loadVocabDeck() {
     const localDeck = this.loadVocabDeckFromLocal();
 
@@ -2429,6 +2434,8 @@ Return ONLY valid JSON in this exact format:
 }
 Rules:
 - Hebrew letters only for pronunciation (you may include apostrophe if needed).
+- Every pronunciation_he value MUST include Hebrew niqqud marks.
+- Never return pronunciation without niqqud.
 - Keep each pronunciation short and practical.
 - Preserve the same words that the user sends.
 - If uncertain, still provide the closest common pronunciation in Hebrew.
@@ -2478,7 +2485,7 @@ Rules:
     parsed.items.forEach(row => {
       const word = this.normalizeWord(row?.word || '');
       const pronunciation = this.normalizePronunciation(row?.pronunciation_he || '');
-      if (!word || !pronunciation) return;
+      if (!word || !pronunciation || !this.hasHebrewNiqqud(pronunciation)) return;
       map[word] = pronunciation;
     });
 
@@ -2541,7 +2548,7 @@ Rules:
       button.textContent = '⏳ Generating...';
     }
 
-    this.showFlashcardsPronunciationStatus('info', `Sending ${missing.length} words to Gemini...`);
+    this.showFlashcardsPronunciationStatus('info', `Sending ${missing.length} words to Gemini (with niqqud)...`);
 
     try {
       const result = await this.callGeminiForPronunciations(missing);
@@ -2561,7 +2568,7 @@ Rules:
       });
 
       if (!updates.length) {
-        this.showFlashcardsPronunciationStatus('error', 'Gemini did not return valid pronunciations. Try again.');
+        this.showFlashcardsPronunciationStatus('error', 'Gemini did not return valid pronunciations with niqqud. Try again.');
         return;
       }
 
