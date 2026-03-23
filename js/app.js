@@ -592,6 +592,16 @@ class EnglishLearningApp {
     return lines.join('\n');
   }
 
+  async logGeminiAttemptFailure(action, category, model, errorMessage) {
+    await this.logGeminiCall({
+      action,
+      category,
+      model: model || 'unknown',
+      success: false,
+      errorMessage: this.truncateText(errorMessage || 'Unknown Gemini failure.', 500)
+    });
+  }
+
   async loadVocabDeck() {
     const localDeck = this.loadVocabDeckFromLocal();
 
@@ -1824,6 +1834,7 @@ Return ONLY valid JSON as specified in your instructions.`;
     }
 
     let usedModel = '';
+    let previousFailureMessage = '';
 
     for (const { model } of modelsToTry) {
       const url = geminiUrl(model);
@@ -1832,7 +1843,10 @@ Return ONLY valid JSON as specified in your instructions.`;
         try {
           if (statusEl) {
             statusEl.className = 'generate-status info';
-            statusEl.textContent = `⏳ Trying ${model}${attempt > 1 ? ` (attempt ${attempt})` : ''}...`;
+            const tryMsg = `⏳ Trying ${model}${attempt > 1 ? ` (attempt ${attempt})` : ''}...`;
+            statusEl.textContent = previousFailureMessage
+              ? `${previousFailureMessage}\n\n${tryMsg}`
+              : tryMsg;
           }
 
           const controller = new AbortController();
@@ -1866,13 +1880,15 @@ Return ONLY valid JSON as specified in your instructions.`;
                 nextStep: `Retrying in ${waitSec}s...`
               });
             }
-            lastError = new Error(this.buildGeminiRetryMessage({
+            previousFailureMessage = this.buildGeminiRetryMessage({
               model,
               attempt,
               statusCode: response.status,
               reason: failure.reason,
               geminiText: failure.geminiText
-            }));
+            });
+            lastError = new Error(previousFailureMessage);
+            await this.logGeminiAttemptFailure('create_category', description.substring(0, 100), model, previousFailureMessage);
             await sleep(waitSec * 1000);
             response = null;
             continue;
@@ -1891,7 +1907,9 @@ Return ONLY valid JSON as specified in your instructions.`;
             statusEl.className = 'generate-status error';
             statusEl.textContent = failMessage;
           }
+          previousFailureMessage = failMessage;
           lastError = new Error(failMessage);
+          await this.logGeminiAttemptFailure('create_category', description.substring(0, 100), model, failMessage);
           response = null;
           break;
         } catch (fetchErr) {
@@ -1908,6 +1926,7 @@ Return ONLY valid JSON as specified in your instructions.`;
             statusEl.className = 'generate-status error';
             statusEl.textContent = failMessage;
           }
+          previousFailureMessage = failMessage;
           lastError = new Error(failMessage);
           response = null;
           continue;
@@ -2273,6 +2292,7 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
     }
 
     let usedModel = '';
+    let previousFailureMessage = '';
 
     for (const { model } of modelsToTry) {
       const url = geminiUrl(model);
@@ -2282,7 +2302,10 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
         try {
           if (statusEl) {
             statusEl.className = 'generate-status info';
-            statusEl.textContent = `⏳ Trying ${model}${attempt > 1 ? ` (attempt ${attempt})` : ''}...`;
+            const tryMsg = `⏳ Trying ${model}${attempt > 1 ? ` (attempt ${attempt})` : ''}...`;
+            statusEl.textContent = previousFailureMessage
+              ? `${previousFailureMessage}\n\n${tryMsg}`
+              : tryMsg;
           }
 
           const controller = new AbortController();
@@ -2317,13 +2340,15 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
                 nextStep: `Retrying in ${waitSec}s...`
               });
             }
-            lastError = new Error(this.buildGeminiRetryMessage({
+            previousFailureMessage = this.buildGeminiRetryMessage({
               model,
               attempt,
               statusCode: response.status,
               reason: failure.reason,
               geminiText: failure.geminiText
-            }));
+            });
+            lastError = new Error(previousFailureMessage);
+            await this.logGeminiAttemptFailure('generate_questions', category, model, previousFailureMessage);
             await sleep(waitSec * 1000);
             response = null; // reset so we retry
             continue;
@@ -2342,7 +2367,9 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
             statusEl.className = 'generate-status error';
             statusEl.textContent = failMessage;
           }
+          previousFailureMessage = failMessage;
           lastError = new Error(failMessage);
+          await this.logGeminiAttemptFailure('generate_questions', category, model, failMessage);
           response = null;
           break; // don't retry other errors, try next model
         } catch (fetchErr) {
@@ -2359,6 +2386,7 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
             statusEl.className = 'generate-status error';
             statusEl.textContent = failMessage;
           }
+          previousFailureMessage = failMessage;
           lastError = new Error(failMessage);
           response = null;
           continue;
