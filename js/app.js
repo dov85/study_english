@@ -466,6 +466,14 @@ class EnglishLearningApp {
 
   getCategories() {
     const categoryMap = {};
+
+    // Include categories that exist in cloud grammar rules even if they currently have no questions.
+    Object.keys(this.grammarRules || {}).forEach(categoryName => {
+      if (!categoryMap[categoryName]) {
+        categoryMap[categoryName] = { name: categoryName, count: 0, available: 0 };
+      }
+    });
+
     this.questionCatalog.forEach(question => {
       if (!categoryMap[question.category]) {
         categoryMap[question.category] = { name: question.category, count: 0, available: 0 };
