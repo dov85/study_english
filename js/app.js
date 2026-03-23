@@ -527,6 +527,63 @@ class EnglishLearningApp {
     return /[\u05B0-\u05C7]/.test(String(value || ''));
   }
 
+  truncateText(value = '', maxLen = 260) {
+    const normalized = String(value || '').replace(/\s+/g, ' ').trim();
+    if (!normalized) return '';
+    if (normalized.length <= maxLen) return normalized;
+    return `${normalized.slice(0, Math.max(0, maxLen - 3))}...`;
+  }
+
+  extractGeminiFailureInfo(rawBody = '') {
+    const raw = String(rawBody || '').trim();
+    if (!raw) {
+      return {
+        reason: 'Empty response body.',
+        geminiText: ''
+      };
+    }
+
+    try {
+      const parsed = JSON.parse(raw);
+      const apiErrorMessage = String(parsed?.error?.message || '').trim();
+      const geminiText = String(parsed?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+
+      if (apiErrorMessage || geminiText) {
+        return {
+          reason: apiErrorMessage || 'Gemini response could not be used.',
+          geminiText
+        };
+      }
+    } catch {
+      // Not JSON - return raw text preview below.
+    }
+
+    return {
+      reason: this.truncateText(raw, 220),
+      geminiText: ''
+    };
+  }
+
+  buildGeminiRetryMessage({ model, attempt, statusCode = '', reason = '', geminiText = '', nextStep = '' }) {
+    const lines = [];
+    const statusPart = statusCode ? ` (${statusCode})` : '';
+    lines.push(`⚠️ ${model} attempt ${attempt} failed${statusPart}.`);
+
+    const cleanReason = this.truncateText(reason, 220) || 'Unknown error.';
+    lines.push(`Reason: ${cleanReason}`);
+
+    const cleanGeminiText = this.truncateText(geminiText, 280);
+    if (cleanGeminiText) {
+      lines.push(`Gemini said: ${cleanGeminiText}`);
+    }
+
+    if (nextStep) {
+      lines.push(nextStep);
+    }
+
+    return lines.join('\n');
+  }
+
   async loadVocabDeck() {
     const localDeck = this.loadVocabDeckFromLocal();
 
@@ -943,7 +1000,7 @@ class EnglishLearningApp {
     const available = this.getAvailableQuestions();
 
     if (quizKey === this.QUIZ_ALL) {
-      return available;
+      return this.shuffleArray([...available]);
     }
 
     if (quizKey === this.QUIZ_MIXED) {
@@ -974,7 +1031,7 @@ class EnglishLearningApp {
       return mixed;
     }
 
-    return available.filter(q => q.category === quizKey);
+    return this.shuffleArray(available.filter(q => q.category === quizKey));
   }
 
   startQuiz(quizKey) {
@@ -992,7 +1049,7 @@ class EnglishLearningApp {
     this.answered = false;
 
     const matchingQuestions = this.getQuestionsForQuiz(this.currentQuizKey);
-    this.questions = this.shuffleArray([...matchingQuestions]).slice(0, this.MAX_QUIZ_QUESTIONS);
+    this.questions = matchingQuestions.slice(0, this.MAX_QUIZ_QUESTIONS);
 
     if (this.questions.length === 0) {
       this.showEmptyQuizScreen();
@@ -1791,24 +1848,61 @@ Return ONLY valid JSON as specified in your instructions.`;
           if (response.status === 429 || response.status === 503) {
             const retryMatch = errBody.match(/retryDelay.*?(\d+)s/i);
             const waitSec = retryMatch ? Math.min(parseInt(retryMatch[1], 10) + 3, 45) : 15;
+            const failure = this.extractGeminiFailureInfo(errBody);
             if (statusEl) {
-              statusEl.textContent = `⏳ ${model} busy (${response.status}). Waiting ${waitSec}s...`;
+              statusEl.className = 'generate-status error';
+              statusEl.textContent = this.buildGeminiRetryMessage({
+                model,
+                attempt,
+                statusCode: response.status,
+                reason: failure.reason,
+                geminiText: failure.geminiText,
+                nextStep: `Retrying in ${waitSec}s...`
+              });
             }
-            lastError = new Error(`${model}: ${response.status}`);
+            lastError = new Error(this.buildGeminiRetryMessage({
+              model,
+              attempt,
+              statusCode: response.status,
+              reason: failure.reason,
+              geminiText: failure.geminiText
+            }));
             await sleep(waitSec * 1000);
             response = null;
             continue;
           }
 
-          lastError = new Error(`Gemini API error ${response.status} (${model}): ${errBody.substring(0, 200)}`);
+          const failure = this.extractGeminiFailureInfo(errBody);
+          const failMessage = this.buildGeminiRetryMessage({
+            model,
+            attempt,
+            statusCode: response.status,
+            reason: failure.reason,
+            geminiText: failure.geminiText,
+            nextStep: 'Trying next model...'
+          });
+          if (statusEl) {
+            statusEl.className = 'generate-status error';
+            statusEl.textContent = failMessage;
+          }
+          lastError = new Error(failMessage);
           response = null;
           break;
         } catch (fetchErr) {
-          if (fetchErr.name === 'AbortError') {
-            lastError = new Error(`${model}: Request timed out (90s)`);
-          } else {
-            lastError = fetchErr;
+          const reason = fetchErr.name === 'AbortError'
+            ? 'Request timed out (90s).'
+            : (fetchErr?.message || 'Unknown network error.');
+          const failMessage = this.buildGeminiRetryMessage({
+            model,
+            attempt,
+            reason,
+            nextStep: attempt < 3 ? 'Retrying now...' : 'Trying next model...'
+          });
+          if (statusEl) {
+            statusEl.className = 'generate-status error';
+            statusEl.textContent = failMessage;
           }
+          lastError = new Error(failMessage);
           response = null;
           continue;
         }
@@ -2204,25 +2298,62 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
           if (response.status === 429 || response.status === 503) {
             const retryMatch = errBody.match(/retryDelay.*?(\d+)s/i);
             const waitSec = retryMatch ? Math.min(parseInt(retryMatch[1], 10) + 3, 45) : 15;
+            const failure = this.extractGeminiFailureInfo(errBody);
 
             if (statusEl) {
-              statusEl.textContent = `⏳ ${model} busy (${response.status}). Waiting ${waitSec}s before retry...`;
+              statusEl.className = 'generate-status error';
+              statusEl.textContent = this.buildGeminiRetryMessage({
+                model,
+                attempt,
+                statusCode: response.status,
+                reason: failure.reason,
+                geminiText: failure.geminiText,
+                nextStep: `Retrying in ${waitSec}s...`
+              });
             }
-            lastError = new Error(`${model}: ${response.status}`);
+            lastError = new Error(this.buildGeminiRetryMessage({
+              model,
+              attempt,
+              statusCode: response.status,
+              reason: failure.reason,
+              geminiText: failure.geminiText
+            }));
             await sleep(waitSec * 1000);
             response = null; // reset so we retry
             continue;
           }
 
-          lastError = new Error(`Gemini API error ${response.status} (${model}): ${errBody.substring(0, 200)}`);
+          const failure = this.extractGeminiFailureInfo(errBody);
+          const failMessage = this.buildGeminiRetryMessage({
+            model,
+            attempt,
+            statusCode: response.status,
+            reason: failure.reason,
+            geminiText: failure.geminiText,
+            nextStep: 'Trying next model...'
+          });
+          if (statusEl) {
+            statusEl.className = 'generate-status error';
+            statusEl.textContent = failMessage;
+          }
+          lastError = new Error(failMessage);
           response = null;
           break; // don't retry other errors, try next model
         } catch (fetchErr) {
-          if (fetchErr.name === 'AbortError') {
-            lastError = new Error(`${model}: Request timed out (45s)`);
-          } else {
-            lastError = fetchErr;
+          const reason = fetchErr.name === 'AbortError'
+            ? 'Request timed out (45s).'
+            : (fetchErr?.message || 'Unknown network error.');
+          const failMessage = this.buildGeminiRetryMessage({
+            model,
+            attempt,
+            reason,
+            nextStep: attempt < 3 ? 'Retrying now...' : 'Trying next model...'
+          });
+          if (statusEl) {
+            statusEl.className = 'generate-status error';
+            statusEl.textContent = failMessage;
           }
+          lastError = new Error(failMessage);
           response = null;
           continue;
         }
@@ -2238,7 +2369,13 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
       throw lastError || new Error('All Gemini models failed. Try again in a minute.');
     }
 
-    const result = await response.json();
+    const rawResult = await response.text();
+    let result;
+    try {
+      result = JSON.parse(rawResult);
+    } catch {
+      throw new Error(`Gemini returned invalid JSON envelope: ${this.truncateText(rawResult, 260)}`);
+    }
     const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!text) throw new Error('Empty response from Gemini.');
 
@@ -2250,7 +2387,12 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
 
     // Clean possible markdown code blocks
     const cleaned = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
-    const parsed = JSON.parse(cleaned);
+    let parsed;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      throw new Error(`Gemini returned non-JSON question payload: ${this.truncateText(text, 320)}`);
+    }
 
     if (!Array.isArray(parsed)) throw new Error('Gemini did not return an array.');
 
