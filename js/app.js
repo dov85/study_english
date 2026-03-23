@@ -885,25 +885,23 @@ class EnglishLearningApp {
     const grid = screen.querySelector('.category-grid');
     grid.innerHTML = '';
 
-    if (!this.questionCatalog.length) {
-      grid.innerHTML = `
-        <div style="width:100%;padding:24px;text-align:center;color:var(--text-muted, #6b7280);font-size:1rem;">No questions available. You can still practice saved vocabulary flashcards.</div>
-        <button class="all-categories-btn" id="empty-vocab-btn" style="background: linear-gradient(135deg, #0ea5e9, #0284c7);"><span>🗂</span> Vocabulary Flashcards (${this.vocabDeck.length} words)</button>
-      `;
-      const emptyVocabBtn = document.getElementById('empty-vocab-btn');
-      if (emptyVocabBtn) {
-        emptyVocabBtn.addEventListener('click', () => this.startQuiz(this.VOCAB_FLASHCARDS));
-      }
-      this.showScreen('category-screen');
-      return;
-    }
-
     const availableAll = this.questionCatalog.filter(q => this.remainingQuestionSet.has(q.id)).length;
 
     const totalInfo = document.createElement('div');
     totalInfo.className = 'total-remaining-info';
     totalInfo.innerHTML = `📊 Total questions remaining: <strong>${availableAll}</strong>`;
     grid.appendChild(totalInfo);
+
+    if (!this.questionCatalog.length) {
+      const emptyInfo = document.createElement('div');
+      emptyInfo.style.width = '100%';
+      emptyInfo.style.padding = '14px 10px';
+      emptyInfo.style.textAlign = 'center';
+      emptyInfo.style.color = 'var(--text-muted, #6b7280)';
+      emptyInfo.style.fontSize = '0.95rem';
+      emptyInfo.textContent = 'No questions available yet. Categories from cloud rules are still listed below.';
+      grid.appendChild(emptyInfo);
+    }
 
     // History button
     const historyBtn = document.createElement('button');
@@ -2949,17 +2947,25 @@ Rules:
 
     if (this.supabase) {
       try {
-        const { error: questionsError } = await this.supabase
-          .from('questions')
-          .delete()
-          .eq('category', categoryName);
-        if (questionsError) throw questionsError;
-
         const { error: rulesError } = await this.supabase
           .from('grammar_rules')
           .delete()
           .eq('category', categoryName);
-        if (rulesError) throw rulesError;
+
+        if (rulesError) {
+          // Fallback path: explicit question deletion first, then remove rules.
+          const { error: questionsError } = await this.supabase
+            .from('questions')
+            .delete()
+            .eq('category', categoryName);
+          if (questionsError) throw questionsError;
+
+          const { error: retryRulesError } = await this.supabase
+            .from('grammar_rules')
+            .delete()
+            .eq('category', categoryName);
+          if (retryRulesError) throw retryRulesError;
+        }
       } catch (error) {
         console.error('Failed to delete category from cloud', error);
         window.alert(`Could not delete category from cloud: ${error.message}`);
