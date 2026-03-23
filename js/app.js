@@ -1911,6 +1911,8 @@ Return ONLY valid JSON as specified in your instructions.`;
     const overlay = document.getElementById('generate-overlay');
     document.getElementById('generate-category-name').textContent = category;
     overlay.dataset.category = category;
+    const notesInput = document.getElementById('generate-notes-input');
+    if (notesInput) notesInput.value = '';
 
     const statusEl = document.getElementById('generate-status');
     statusEl.style.display = 'none';
@@ -1964,6 +1966,8 @@ Return ONLY valid JSON as specified in your instructions.`;
     const submitBtn = document.getElementById('generate-submit-btn');
     const usageStats = document.getElementById('generate-usage-stats');
     const selectedModel = document.getElementById('generate-model-select').value;
+    const notesInput = document.getElementById('generate-notes-input');
+    const generationNotes = String(notesInput?.value || '').trim().slice(0, 500);
 
     usageStats.style.display = 'none';
 
@@ -2002,7 +2006,7 @@ Return ONLY valid JSON as specified in your instructions.`;
 
       // Step 2: Generate new questions
       statusEl.textContent = `Step 2/3: Generating ${amount} new questions with ${selectedModel}...`;
-      const genResult = await this.callGeminiForQuestions(category, amount, selectedModel);
+      const genResult = await this.callGeminiForQuestions(category, amount, selectedModel, generationNotes);
 
       if (!genResult.questions || genResult.questions.length === 0) {
         throw new Error('Gemini returned no valid questions.');
@@ -2077,7 +2081,7 @@ Return ONLY valid JSON as specified in your instructions.`;
     }
   }
 
-  async callGeminiForQuestions(category, amount, specificModel = null) {
+  async callGeminiForQuestions(category, amount, specificModel = null, generationNotes = '') {
     const systemInstruction = `Role:
 You are an expert English Language Teacher and Content Creator for a specialized study app. Your goal is to generate high-quality practice questions that fit a specific database schema.
 
@@ -2130,12 +2134,18 @@ Strict JSON: Return ONLY the JSON array. Do not include conversational text befo
       .slice(0, 5)
       .map(q => q.sentence);
 
+    const notesBlock = generationNotes
+      ? `Additional user notes for these new sentences (follow these exactly when possible):\n${generationNotes}\n`
+      : '';
+
     const prompt = `Generate exactly ${amount} NEW and UNIQUE quiz questions for the category "${category}".
 
 CRITICAL: The "category" field in every object MUST be exactly "${category}" — no subcategories, no suffixes, no variations.
 
 ${existingSentences.length > 0 ? `Do NOT repeat or rephrase any of these existing questions:
 ${existingSentences.join('\n')}` : ''}
+
+${notesBlock}
 
 Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanation outside the array.`;
 

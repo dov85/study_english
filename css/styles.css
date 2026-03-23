@@ -1468,6 +1468,33 @@ body {
   font-size: 0.85rem;
 }
 
+.generate-notes-textarea {
+  display: block;
+  width: 100%;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  border: 2px solid var(--border, #e2e8f0);
+  border-radius: var(--radius-sm);
+  background: var(--bg, #fff);
+  color: var(--text, #1e293b);
+  font-size: 0.9rem;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 66px;
+  line-height: 1.5;
+}
+
+.generate-notes-textarea:focus {
+  outline: none;
+  border-color: var(--primary, #6366f1);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.generate-notes-textarea::placeholder {
+  color: var(--text-muted, #9ca3af);
+  font-size: 0.84rem;
+}
+
 .create-cat-response {
   background: #fef3c7;
   border: 1px solid #fcd34d;
