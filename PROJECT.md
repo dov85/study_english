@@ -103,7 +103,7 @@ study-english/
 
 ## Database Schema (Supabase)
 
-**Project URL:** `https://fjliapgwwhplftoxdpyz.supabase.co`
+**Project URL:** `https://utafnfhqiiwtisptminz.supabase.co` (Supabase project: `study_english`)
 
 ### Table: `grammar_rules`
 
@@ -154,6 +154,8 @@ study-english/
 | `questions_generated` | INT | Reused metric for generated item count |
 | `success` | BOOLEAN | Whether the call succeeded |
 | `error_message` | TEXT | Error details when failed |
+| `raw_request` | TEXT | Full prompt sent to the model (for review) |
+| `raw_response` | TEXT | Full raw text the model returned (viewable in the History modal) |
 | `created_at` | TIMESTAMPTZ | Default `now()` |
 
 ### RLS Policies
@@ -181,17 +183,19 @@ study-english/
 
 - **Endpoint:** `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`
 - **Auth:** API key as query parameter
-- **Models (with daily free-tier limits):**
+- **Models — three families (with free-tier limits):**
 
-| Model | RPD (Requests/Day) |
-|-------|---------------------|
-| `gemini-3-flash-preview` | 20 |
-| `gemini-2.5-flash` | 20 |
-| `gemini-2.5-flash-lite` | 20 |
-| `gemini-3.1-flash-lite` | 500 |
+| Tier | Model ID | Best for | RPM | RPD |
+|------|----------|----------|-----|-----|
+| Flash | `gemini-2.5-flash` | General tasks, rapid prototyping (app default) | 15 | 1,500 |
+| Flash-Lite | `gemini-3.1-flash-lite` | High-volume, simple data parsing | 30 | 1,500 |
+| Pro | `gemini-2.5-pro` | Complex reasoning, advanced coding | 5 | 50 |
+
+  Config lives in `GEMINI_MODELS_CONFIG` (top of `js/app.js`) and may be overridden by a `gemini_models_config` row in `app_config`. Only **RPD** is enforced for model availability; RPM is shown for reference.
 
 - **Features used:** `system_instruction`, `generationConfig` (temperature, maxOutputTokens), usage metadata (token counts)
 - **Retry logic:** Up to 3 attempts per model on HTTP 429/503 with exponential backoff
+- **Raw exchange logging:** every call's full prompt (`raw_request`) and raw model output (`raw_response`) are stored in `gemini_logs` and viewable per-entry in the Generation History modal
 
 ---
 

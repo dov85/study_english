@@ -67,8 +67,14 @@ create table if not exists public.gemini_logs (
   questions_generated int not null default 0,
   success boolean not null default true,
   error_message text,
+  raw_request text,               -- full prompt sent to the model
+  raw_response text,              -- full raw text the model returned (for review/iteration)
   created_at timestamptz not null default now()
 );
+
+-- Added after initial deploy: keep the full model exchange for later review.
+alter table public.gemini_logs add column if not exists raw_request text;
+alter table public.gemini_logs add column if not exists raw_response text;
 
 alter table public.gemini_logs enable row level security;
 drop policy if exists "anon can read gemini_logs" on public.gemini_logs;

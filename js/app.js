@@ -2,18 +2,21 @@
 // English Learning App - Main Logic
 // ============================
 
-const SUPABASE_URL = 'https://fjliapgwwhplftoxdpyz.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_Zct9fKl_HZOMS49pSiY29w_c8FWjIlr';
+const SUPABASE_URL = 'https://utafnfhqiiwtisptminz.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_fQSNmhWNylFI6eoCQQm8Ng_zVkiUZoc';
 
 // Gemini API key loaded from cloud (app_config table)
 let GEMINI_API_KEY = '';
 
-// Model config loaded from cloud — fallback defaults from Google AI Studio rate limits
+// Model config loaded from cloud — fallback defaults from Google AI Studio free-tier limits.
+// Three families available on this key (see PROJECT.md → API Integrations):
+//   Flash       — general tasks / rapid prototyping   (15 rpm, 1,500 rpd)
+//   Flash-Lite  — high-volume, simple data parsing     (30 rpm, 1,500 rpd)
+//   Pro         — complex reasoning, advanced coding   (5 rpm,  50 rpd)
 let GEMINI_MODELS_CONFIG = [
-  { model: 'gemini-3-flash-preview', rpd: 20, tpm: 250000 },
-  { model: 'gemini-2.5-flash', rpd: 20, tpm: 250000 },
-  { model: 'gemini-2.5-flash-lite', rpd: 20, tpm: 250000 },
-  { model: 'gemini-3.1-flash-lite', rpd: 500, tpm: 250000 }
+  { model: 'gemini-2.5-flash',      tier: 'Flash',      bestFor: 'General tasks, rapid prototyping', rpm: 15, rpd: 1500, tpm: 250000 },
+  { model: 'gemini-3.1-flash-lite', tier: 'Flash-Lite', bestFor: 'High-volume, simple parsing',      rpm: 30, rpd: 1500, tpm: 250000 },
+  { model: 'gemini-2.5-pro',        tier: 'Pro',        bestFor: 'Complex reasoning, coding',        rpm: 5,  rpd: 50,   tpm: 250000 }
 ];
 
 // Today's usage cache (loaded from cloud)
@@ -1113,9 +1116,11 @@ class EnglishLearningApp {
       remainingEl.textContent = `📊 ${totalRemaining} questions left`;
     }
 
-    document.getElementById('category-label').textContent = this.currentQuizKey === this.QUIZ_MIXED
-      ? this.getQuizLabel()
-      : `${this.getQuizLabel()} · ${q.category}`;
+    const quizLabel = this.getQuizLabel();
+    document.getElementById('category-label').textContent =
+      (this.currentQuizKey === this.QUIZ_MIXED || quizLabel === q.category)
+        ? quizLabel
+        : `${quizLabel} · ${q.category}`;
     document.getElementById('progress-text').textContent = `${current} / ${total}`;
 
     const pct = ((current - 1) / total) * 100;
@@ -1382,18 +1387,41 @@ class EnglishLearningApp {
   async logGeminiCall(entry) {
     invalidateUsageCache();
     if (!this.supabase) return;
+    const base = {
+      action: entry.action || 'unknown',
+      category: entry.category || null,
+      model: entry.model || 'unknown',
+      prompt_tokens: entry.promptTokens || 0,
+      response_tokens: entry.responseTokens || 0,
+      total_tokens: entry.tokensUsed || 0,
+      questions_generated: entry.questionsGenerated || 0,
+      success: entry.success !== false,
+      error_message: entry.errorMessage || null
+    };
+    // Full raw exchange, so the model's output can be reviewed later in the History modal.
+    const withRaw = {
+      ...base,
+      raw_request: entry.rawRequest ? String(entry.rawRequest) : null,
+      raw_response: entry.rawResponse ? String(entry.rawResponse) : null
+    };
     try {
-      await this.supabase.from('gemini_logs').insert({
-        action: entry.action || 'unknown',
-        category: entry.category || null,
-        model: entry.model || 'unknown',
-        prompt_tokens: entry.promptTokens || 0,
-        response_tokens: entry.responseTokens || 0,
-        total_tokens: entry.tokensUsed || 0,
-        questions_generated: entry.questionsGenerated || 0,
-        success: entry.success !== false,
-        error_message: entry.errorMessage || null
-      });
+      if (this.supportsRawLogColumns === false) {
+        await this.supabase.from('gemini_logs').insert(base);
+        return;
+      }
+      const { error } = await this.supabase.from('gemini_logs').insert(withRaw);
+      if (error) {
+        const msg = String(error.message || '').toLowerCase();
+        // Columns not migrated yet → fall back to logging without the raw fields.
+        if (msg.includes('raw_request') || msg.includes('raw_response')
+          || (msg.includes('column') && msg.includes('does not exist'))) {
+          this.supportsRawLogColumns = false;
+          await this.supabase.from('gemini_logs').insert(base);
+          return;
+        }
+        throw error;
+      }
+      this.supportsRawLogColumns = true;
     } catch (err) {
       console.warn('Failed to log Gemini call:', err);
     }
@@ -1465,14 +1493,16 @@ class EnglishLearningApp {
           const t = modelTodayMap[m.model] || { requests: 0, tokens: 0 };
           const reqLeft = Math.max(0, m.rpd - t.requests);
           const pct = Math.min(100, (t.requests / m.rpd) * 100);
+          const tierLabel = m.tier ? `${m.tier} · ` : '';
+          const rpmLabel = m.rpm ? ` · ${m.rpm}/min` : '';
           return `
             <div class="model-stat-row">
               <span class="model-stat-name">${this.escapeHtml(m.model)}</span>
               <div class="model-stat-bar-wrap">
                 <div class="model-stat-bar" style="width:${pct}%;${pct >= 90 ? 'background:var(--error,#ef4444);' : ''}"></div>
               </div>
-              <span class="model-stat-detail">${t.requests}/${m.rpd} req</span>
-              <span class="model-stat-detail">${(t.tokens / 1000).toFixed(1)}K / ${(m.tpm / 1000).toFixed(0)}K tokens</span>
+              <span class="model-stat-detail">${t.requests}/${m.rpd} req/day${rpmLabel}</span>
+              <span class="model-stat-detail">${tierLabel}${(t.tokens / 1000).toFixed(1)}K tokens</span>
             </div>`;
         }).join('')}
       </div>
@@ -1508,6 +1538,8 @@ class EnglishLearningApp {
               </div>
               ${l.category ? `<div class="history-details-extra"><span>📂 ${this.escapeHtml(l.category)}</span></div>` : ''}
               ${!l.success && l.error_message ? `<div class="history-details-extra"><span style="color:var(--error);">${this.escapeHtml(l.error_message)}</span></div>` : ''}
+              ${l.raw_request ? `<details class="history-raw"><summary>📤 Request sent</summary><pre>${this.escapeHtml(l.raw_request)}</pre></details>` : ''}
+              ${l.raw_response ? `<details class="history-raw"><summary>📥 Model response</summary><pre>${this.escapeHtml(l.raw_response)}</pre></details>` : ''}
             </div>`;
         }).join('')}
       </div>
@@ -1716,7 +1748,9 @@ class EnglishLearningApp {
         questionsGenerated: insertedQuestions.length,
         tokensUsed: result.tokensUsed,
         promptTokens: result.promptTokens,
-        responseTokens: result.responseTokens
+        responseTokens: result.responseTokens,
+        rawRequest: result.rawRequest,
+        rawResponse: result.rawResponse
       });
 
       // Show usage stats
@@ -1977,7 +2011,9 @@ Return ONLY valid JSON as specified in your instructions.`;
         promptTokens,
         responseTokens,
         attemptsMade,
-        failedAttempts
+        failedAttempts,
+        rawRequest: prompt,
+        rawResponse: text
       };
     }
 
@@ -1991,7 +2027,9 @@ Return ONLY valid JSON as specified in your instructions.`;
         promptTokens,
         responseTokens,
         attemptsMade,
-        failedAttempts
+        failedAttempts,
+        rawRequest: prompt,
+        rawResponse: text
       };
     }
 
@@ -2005,7 +2043,9 @@ Return ONLY valid JSON as specified in your instructions.`;
         promptTokens,
         responseTokens,
         attemptsMade,
-        failedAttempts
+        failedAttempts,
+        rawRequest: prompt,
+        rawResponse: text
       };
     }
 
@@ -2028,7 +2068,9 @@ Return ONLY valid JSON as specified in your instructions.`;
         promptTokens,
         responseTokens,
         attemptsMade,
-        failedAttempts
+        failedAttempts,
+        rawRequest: prompt,
+        rawResponse: text
       };
     }
 
@@ -2040,7 +2082,9 @@ Return ONLY valid JSON as specified in your instructions.`;
       modelUsed: usedModel,
       tokensUsed: totalTokens,
       promptTokens,
-      responseTokens
+      responseTokens,
+      rawRequest: prompt,
+      rawResponse: text
     };
   }
 
@@ -2184,7 +2228,9 @@ Return ONLY valid JSON as specified in your instructions.`;
         questionsGenerated: inserted.length,
         tokensUsed: genResult.tokensUsed,
         promptTokens: genResult.promptTokens,
-        responseTokens: genResult.responseTokens
+        responseTokens: genResult.responseTokens,
+        rawRequest: genResult.rawRequest,
+        rawResponse: genResult.rawResponse
       });
 
       // Show usage stats
@@ -2482,7 +2528,9 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
       promptTokens,
       responseTokens,
       attemptsMade,
-      failedAttempts
+      failedAttempts,
+      rawRequest: prompt,
+      rawResponse: text
     };
   }
 
@@ -2717,7 +2765,9 @@ Rules:
       modelUsed: selectedModel,
       tokensUsed: totalTokens,
       promptTokens,
-      responseTokens
+      responseTokens,
+      rawRequest: `Create Hebrew pronunciations for these words:\n${JSON.stringify(promptItems)}`,
+      rawResponse: text
     };
   }
 
@@ -2814,7 +2864,9 @@ Rules:
         questionsGenerated: updates.length,
         tokensUsed: result.tokensUsed,
         promptTokens: result.promptTokens,
-        responseTokens: result.responseTokens
+        responseTokens: result.responseTokens,
+        rawRequest: result.rawRequest,
+        rawResponse: result.rawResponse
       });
     } catch (error) {
       this.showFlashcardsPronunciationStatus('error', `Could not generate pronunciations: ${error.message}`);

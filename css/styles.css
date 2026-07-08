@@ -1590,6 +1590,36 @@ body {
   opacity: 0.75;
 }
 
+.history-raw {
+  margin-top: 6px;
+  font-size: 0.75rem;
+}
+
+.history-raw summary {
+  cursor: pointer;
+  color: var(--primary, #6366f1);
+  font-weight: 600;
+  user-select: none;
+}
+
+.history-raw pre {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  max-height: 260px;
+  overflow: auto;
+  background: rgba(15, 23, 42, 0.06);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--text-secondary, #cbd5e1);
+  direction: ltr;
+  text-align: left;
+}
+
 .history-action-badge {
   font-size: 0.72rem;
   padding: 2px 8px;
