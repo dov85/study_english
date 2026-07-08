@@ -1895,7 +1895,7 @@ Return ONLY valid JSON as specified in your instructions.`;
     for (const { model } of modelsToTry) {
       const url = geminiUrl(model);
 
-      for (let attempt = 1; attempt <= 3; attempt++) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
         try {
           attemptsMade++;
           if (statusEl) {
@@ -1922,7 +1922,10 @@ Return ONLY valid JSON as specified in your instructions.`;
           if (response.status === 429 || response.status === 503) {
             const hardQuota = isHardQuotaError(response.status, errBody);
             const retryMatch = errBody.match(/retryDelay.*?(\d+)s/i);
-            const waitSec = retryMatch ? Math.min(parseInt(retryMatch[1], 10) + 3, 45) : 15;
+            // 503 = transient server overload; retry quickly, then fail over to another model.
+            const waitSec = response.status === 503
+              ? 4
+              : (retryMatch ? Math.min(parseInt(retryMatch[1], 10) + 3, 45) : 15);
             const failure = this.extractGeminiFailureInfo(errBody);
             const failedMsg = this.buildGeminiRetryMessage({
               model,
@@ -2389,8 +2392,8 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
     for (const { model } of modelsToTry) {
       const url = geminiUrl(model);
 
-      // Try up to 3 attempts per model (with retry on 429/503)
-      for (let attempt = 1; attempt <= 3; attempt++) {
+      // Try up to 2 attempts per model (with retry on 429/503), then fail over to the next model
+      for (let attempt = 1; attempt <= 2; attempt++) {
         try {
           attemptsMade++;
           if (statusEl) {
@@ -2417,7 +2420,10 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
           if (response.status === 429 || response.status === 503) {
             const hardQuota = isHardQuotaError(response.status, errBody);
             const retryMatch = errBody.match(/retryDelay.*?(\d+)s/i);
-            const waitSec = retryMatch ? Math.min(parseInt(retryMatch[1], 10) + 3, 45) : 15;
+            // 503 = transient server overload; retry quickly, then fail over to another model.
+            const waitSec = response.status === 503
+              ? 4
+              : (retryMatch ? Math.min(parseInt(retryMatch[1], 10) + 3, 45) : 15);
             const failure = this.extractGeminiFailureInfo(errBody);
 
             const failedMsg = this.buildGeminiRetryMessage({
