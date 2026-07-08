@@ -106,6 +106,22 @@ async function getAvailableModels() {
   const usage = await getTodayUsageFromCloud();
   return getAvailableModelsSync(usage);
 }
+
+// Build the ordered list of models to try. When the user picks a specific model
+// we put it first, then append the other still-available models as fallback —
+// so a model with no quota (e.g. Pro) fails over instead of dead-ending.
+async function buildModelsToTry(preferredModel) {
+  const available = await getAvailableModels();
+  if (!preferredModel) return available;
+  const rest = available.filter(m => m.model !== preferredModel);
+  return [{ model: preferredModel }, ...rest];
+}
+
+// A 429 that says the plan/quota is exhausted won't recover by retrying the same
+// model — we should skip straight to the next model instead of waiting.
+function isHardQuotaError(status, body) {
+  return status === 429 && /exceeded your current quota|quota exceeded|billing/i.test(String(body || ''));
+}
 const hasSupabaseCredentials = typeof SUPABASE_URL === 'string'
   && SUPABASE_URL.startsWith('https://')
   && typeof SUPABASE_ANON_KEY === 'string'
@@ -1860,9 +1876,7 @@ Return ONLY valid JSON as specified in your instructions.`;
     const statusEl = document.getElementById('create-cat-status');
     const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-    const modelsToTry = selectedModel
-      ? [{ model: selectedModel }]
-      : await getAvailableModels();
+    const modelsToTry = await buildModelsToTry(selectedModel);
     if (modelsToTry.length === 0) {
       throw new Error('Daily API quota exhausted for all models. Try again tomorrow.');
     }
@@ -1906,33 +1920,35 @@ Return ONLY valid JSON as specified in your instructions.`;
           const errBody = await response.text();
 
           if (response.status === 429 || response.status === 503) {
+            const hardQuota = isHardQuotaError(response.status, errBody);
             const retryMatch = errBody.match(/retryDelay.*?(\d+)s/i);
             const waitSec = retryMatch ? Math.min(parseInt(retryMatch[1], 10) + 3, 45) : 15;
             const failure = this.extractGeminiFailureInfo(errBody);
-            if (statusEl) {
-              statusEl.className = 'generate-status error';
-              statusEl.textContent = this.buildGeminiRetryMessage({
-                model,
-                attempt,
-                statusCode: response.status,
-                reason: failure.reason,
-                geminiText: failure.geminiText,
-                nextStep: `Retrying in ${waitSec}s...`
-              });
-            }
             const failedMsg = this.buildGeminiRetryMessage({
               model,
               attempt,
               statusCode: response.status,
-              reason: failure.reason,
-              geminiText: failure.geminiText
+              reason: hardQuota ? `No quota for ${model} on this API key.` : failure.reason,
+              geminiText: failure.geminiText,
+              nextStep: hardQuota ? 'Switching to another model...' : ''
             });
+            if (statusEl) {
+              statusEl.className = 'generate-status error';
+              statusEl.textContent = hardQuota
+                ? failureHistory.concat(failedMsg).join('\n\n')
+                : this.buildGeminiRetryMessage({
+                    model, attempt, statusCode: response.status,
+                    reason: failure.reason, geminiText: failure.geminiText,
+                    nextStep: `Retrying in ${waitSec}s...`
+                  });
+            }
             failureHistory.push(failedMsg);
             failedAttempts++;
             lastError = new Error(failedMsg);
             await this.logGeminiAttemptFailure('create_category', description.substring(0, 100), model, failedMsg);
-            await sleep(waitSec * 1000);
             response = null;
+            if (hardQuota) break; // this model has no quota — go straight to the next model
+            await sleep(waitSec * 1000);
             continue;
           }
 
@@ -2353,10 +2369,8 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
 
     const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-    // Build model list: use specific model if provided, otherwise available models
-    const modelsToTry = specificModel
-      ? [{ model: specificModel }]
-      : await getAvailableModels();
+    // Build model list: preferred model first, then other available models as fallback
+    const modelsToTry = await buildModelsToTry(specificModel);
     if (modelsToTry.length === 0) {
       throw new Error('Daily API quota exhausted for all models. Try again tomorrow.');
     }
@@ -2401,34 +2415,36 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
           const errBody = await response.text();
 
           if (response.status === 429 || response.status === 503) {
+            const hardQuota = isHardQuotaError(response.status, errBody);
             const retryMatch = errBody.match(/retryDelay.*?(\d+)s/i);
             const waitSec = retryMatch ? Math.min(parseInt(retryMatch[1], 10) + 3, 45) : 15;
             const failure = this.extractGeminiFailureInfo(errBody);
 
-            if (statusEl) {
-              statusEl.className = 'generate-status error';
-              statusEl.textContent = this.buildGeminiRetryMessage({
-                model,
-                attempt,
-                statusCode: response.status,
-                reason: failure.reason,
-                geminiText: failure.geminiText,
-                nextStep: `Retrying in ${waitSec}s...`
-              });
-            }
             const failedMsg = this.buildGeminiRetryMessage({
               model,
               attempt,
               statusCode: response.status,
-              reason: failure.reason,
-              geminiText: failure.geminiText
+              reason: hardQuota ? `No quota for ${model} on this API key.` : failure.reason,
+              geminiText: failure.geminiText,
+              nextStep: hardQuota ? 'Switching to another model...' : ''
             });
+            if (statusEl) {
+              statusEl.className = 'generate-status error';
+              statusEl.textContent = hardQuota
+                ? `${failureHistory.concat(failedMsg).join('\n\n')}`
+                : this.buildGeminiRetryMessage({
+                    model, attempt, statusCode: response.status,
+                    reason: failure.reason, geminiText: failure.geminiText,
+                    nextStep: `Retrying in ${waitSec}s...`
+                  });
+            }
             failureHistory.push(failedMsg);
             failedAttempts++;
             lastError = new Error(failedMsg);
             await this.logGeminiAttemptFailure('generate_questions', category, model, failedMsg);
+            response = null;
+            if (hardQuota) break; // this model has no quota — go straight to the next model
             await sleep(waitSec * 1000);
-            response = null; // reset so we retry
             continue;
           }
 
