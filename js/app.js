@@ -38,8 +38,14 @@ const GEMINI_MODELS_CONFIG = [
 let _todayUsageCache = null;
 let _todayUsageCacheTime = 0;
 
+// Slug of the deployed Edge Function. Supabase assigns a random slug when you create a
+// function from the dashboard ("clever-responder", "quick-task", ...) and the title you type
+// afterwards is only a display label — the slug is what the URL uses. Check the URL shown on
+// the function's page and put that value here.
+const GEMINI_FUNCTION = 'clever-responder';
+
 function geminiUrl(model) {
-  return `${SUPABASE_URL}/functions/v1/gemini/${model}`;
+  return `${SUPABASE_URL}/functions/v1/${GEMINI_FUNCTION}/${model}`;
 }
 
 // The Edge Function requires the publishable key, same as any Supabase request.
