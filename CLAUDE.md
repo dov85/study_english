@@ -22,11 +22,11 @@ See `PROJECT.md` for full documentation (architecture, schema, method lists, flo
 - Anon (publishable) key is **hardcoded** in `js/app.js` top constants — that is the intended pattern here, not a mistake.
 - Secret (service role) key + Gemini key live in `.env` (used only by `scripts/*.js`). `.env` is gitignored — never commit keys.
 - Tables: `grammar_rules`, `questions` (FK → grammar_rules.category, ON DELETE CASCADE), `vocab_words`, `gemini_logs`, `app_config`. All use RLS with permissive anon policies (single-user app, no auth).
-- **`app_config` is critical:** the browser app loads `gemini_api_key` (and optionally `gemini_models_config` JSON) from this table at startup. Without the `gemini_api_key` row, all AI features fail. Row inserted on 2026-07-08.
+- **`app_config` holds no secrets.** It previously stored `gemini_api_key`, which the browser read with the publishable key — that published the key to anyone who opened `js/app.js`. The key is now a secret on the `gemini` Edge Function, and the table's anon policy is restricted to the single `gemini_models_config` row. Never put a credential in a table the client can read.
 
 ## Gemini AI integration
 
-- Direct REST calls from the browser: `generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`
+- The browser calls the `gemini` Edge Function (`supabase/functions/gemini`), which holds the API key as a secret and forwards to `generativelanguage.googleapis.com`. Google's status codes and error bodies are passed through unchanged, because the client's retry and model-fallback logic parses them.
 - Three model families in `GEMINI_MODELS_CONFIG` (top of `js/app.js`): **Flash** `gemini-2.5-flash` (default, 15rpm/1500rpd), **Flash-Lite** `gemini-3.1-flash-lite` (30rpm/1500rpd), **Pro** `gemini-2.5-pro` (5rpm/50rpd — often 429s, used last).
 - Multi-model fallback with per-model daily quotas (RPD is enforced; RPM is display-only), tracked in the cloud via `gemini_logs` (not localStorage)
 - Retries on 429/503 with backoff; failed attempts are also logged (`success: false`)

@@ -5,8 +5,9 @@
 const SUPABASE_URL = 'https://utafnfhqiiwtisptminz.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_fQSNmhWNylFI6eoCQQm8Ng_zVkiUZoc';
 
-// Gemini API key loaded from cloud (app_config table)
-let GEMINI_API_KEY = '';
+// The Gemini key is NOT held here. It lives as a secret on the `gemini` Edge Function
+// (supabase/functions/gemini), which proxies the calls. Anything this file holds is public,
+// so a key stored client-side — or in a table the browser can read — is a published key.
 
 // Model config loaded from cloud — fallback defaults from Google AI Studio free-tier limits.
 // Three families available on this key (see PROJECT.md → API Integrations):
@@ -24,8 +25,15 @@ let _todayUsageCache = null;
 let _todayUsageCacheTime = 0;
 
 function geminiUrl(model) {
-  if (!GEMINI_API_KEY) throw new Error('Gemini API key not loaded. Please refresh the page.');
-  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+  return `${SUPABASE_URL}/functions/v1/gemini/${model}`;
+}
+
+// The Edge Function requires the publishable key, same as any Supabase request.
+function geminiHeaders() {
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+  };
 }
 
 // ─── Load secrets & config from Supabase app_config ────
@@ -35,11 +43,10 @@ async function loadAppConfig() {
     const { data, error } = await supabaseClient
       .from('app_config')
       .select('key, value')
-      .in('key', ['gemini_api_key', 'gemini_models_config']);
+      .in('key', ['gemini_models_config']);
     if (error) throw error;
     if (data) {
       data.forEach(row => {
-        if (row.key === 'gemini_api_key') GEMINI_API_KEY = row.value;
         if (row.key === 'gemini_models_config') {
           try {
             const parsed = JSON.parse(row.value);
@@ -48,11 +55,7 @@ async function loadAppConfig() {
         }
       });
     }
-    if (GEMINI_API_KEY) {
-      console.log('✅ Config loaded from cloud');
-    } else {
-      console.warn('⚠️ Gemini API key not found in app_config table');
-    }
+    console.log('✅ Config loaded from cloud');
   } catch (err) {
     console.error('Failed to load app config:', err);
   }
@@ -1908,7 +1911,7 @@ Return ONLY valid JSON as specified in your instructions.`;
 
           response = await fetch(url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: geminiHeaders(),
             body,
             signal: controller.signal
           });
@@ -2406,7 +2409,7 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
 
           response = await fetch(url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: geminiHeaders(),
             body,
             signal: controller.signal
           });
@@ -2750,7 +2753,7 @@ Rules:
 
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: geminiHeaders(),
       body
     });
 
