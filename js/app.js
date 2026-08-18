@@ -9,15 +9,20 @@ const SUPABASE_ANON_KEY = 'sb_publishable_Zct9fKl_HZOMS49pSiY29w_c8FWjIlr';
 // (supabase/functions/gemini), which proxies the calls. Anything this file holds is public,
 // so a key stored client-side — or in a table the browser can read — is a published key.
 
-// Model config loaded from cloud — fallback defaults from Google AI Studio free-tier limits.
-// Three families available on this key (see PROJECT.md → API Integrations):
-//   Flash       — general tasks / rapid prototyping   (15 rpm, 1,500 rpd)
-//   Flash-Lite  — high-volume, simple data parsing     (30 rpm, 1,500 rpd)
-//   Pro         — complex reasoning, advanced coding   (5 rpm,  50 rpd)
+// Model config loaded from cloud, with the fallback below matching the quotas actually
+// granted on this key (Google AI Studio -> Rate Limit, checked 2026-08-18).
+//
+// The daily limits are far smaller than the free-tier numbers this file used to assume:
+// 20 requests/day on the Flash models, not 1,500. gemini-2.5-pro was listed at 5 rpm /
+// 50 rpd but is granted 0/0 on this key — no quota at all — which is why every call to it
+// returned 429. It is removed rather than kept as a permanently failing fallback.
+//
+// Order is quality first, quota second: the Flash model handles normal use, and the
+// Flash-Lite models take over when its 20 daily requests run out, since they carry 500.
 let GEMINI_MODELS_CONFIG = [
-  { model: 'gemini-2.5-flash',      tier: 'Flash',      bestFor: 'General tasks, rapid prototyping', rpm: 15, rpd: 1500, tpm: 250000 },
-  { model: 'gemini-3.1-flash-lite', tier: 'Flash-Lite', bestFor: 'High-volume, simple parsing',      rpm: 30, rpd: 1500, tpm: 250000 },
-  { model: 'gemini-2.5-pro',        tier: 'Pro',        bestFor: 'Complex reasoning, coding',        rpm: 5,  rpd: 50,   tpm: 250000 }
+  { model: 'gemini-3.7-flash',      tier: 'Flash',      bestFor: 'General tasks, best quality available', rpm: 5,  rpd: 20,  tpm: 250000 },
+  { model: 'gemini-3.5-flash-lite', tier: 'Flash-Lite', bestFor: 'High-volume generation',                rpm: 15, rpd: 500, tpm: 250000 },
+  { model: 'gemini-3.1-flash-lite', tier: 'Flash-Lite', bestFor: 'High-volume fallback',                  rpm: 15, rpd: 500, tpm: 250000 }
 ];
 
 // Today's usage cache (loaded from cloud)

@@ -19,9 +19,9 @@ const GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models
 // Only models the app actually uses. Without this the proxy would happily bill the key for
 // anything a caller names.
 const ALLOWED_MODELS = new Set([
-  "gemini-2.5-flash",
+  "gemini-3.7-flash",
+  "gemini-3.5-flash-lite",
   "gemini-3.1-flash-lite",
-  "gemini-2.5-pro",
 ]);
 
 const MAX_BODY_BYTES = 100_000;

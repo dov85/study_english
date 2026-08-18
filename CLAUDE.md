@@ -27,7 +27,7 @@ See `PROJECT.md` for full documentation (architecture, schema, method lists, flo
 ## Gemini AI integration
 
 - The browser calls the `gemini` Edge Function (`supabase/functions/gemini`), which holds the API key as a secret and forwards to `generativelanguage.googleapis.com`. Google's status codes and error bodies are passed through unchanged, because the client's retry and model-fallback logic parses them.
-- Three model families in `GEMINI_MODELS_CONFIG` (top of `js/app.js`): **Flash** `gemini-2.5-flash` (default, 15rpm/1500rpd), **Flash-Lite** `gemini-3.1-flash-lite` (30rpm/1500rpd), **Pro** `gemini-2.5-pro` (5rpm/50rpd — often 429s, used last).
+- Three models in `GEMINI_MODELS_CONFIG` (top of `js/app.js`), matching the quotas actually granted on this key: **`gemini-3.7-flash`** (5rpm/20rpd, tried first for quality), **`gemini-3.5-flash-lite`** and **`gemini-3.1-flash-lite`** (15rpm/**500rpd** each, the volume fallbacks). `gemini-2.5-pro` was removed — it is granted 0/0 on this key, which is why every call to it returned 429.
 - Multi-model fallback with per-model daily quotas (RPD is enforced; RPM is display-only), tracked in the cloud via `gemini_logs` (not localStorage)
 - Retries on 429/503 with backoff; failed attempts are also logged (`success: false`)
 - **Raw logging:** every call stores `raw_request` + `raw_response` in `gemini_logs`, shown expandable in the History modal. Requires the two columns — run `supabase/add_raw_logging.sql` in the SQL editor. Code falls back gracefully (`supportsRawLogColumns` flag) if they're missing.
