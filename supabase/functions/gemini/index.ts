@@ -73,14 +73,17 @@ Deno.serve(async (req) => {
 
   let upstream: Response;
   try {
-    upstream = await fetch(
-      `${GEMINI_ENDPOINT}/${model}:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body,
+    upstream = await fetch(`${GEMINI_ENDPOINT}/${model}:generateContent`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        // Auth keys (the AQ.* format every new AI Studio key uses) must be sent as a
+        // header. The ?key= query parameter only authenticates the older AIza* standard
+        // keys, and silently fails for everything else. The header works for both.
+        "x-goog-api-key": GEMINI_API_KEY,
       },
-    );
+      body,
+    });
   } catch (err) {
     return json({ error: { message: `Upstream request failed: ${err}` } }, 502);
   }
