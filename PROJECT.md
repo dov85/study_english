@@ -189,7 +189,7 @@ study-english/
 | Flash-Lite | `gemini-3.1-flash-lite` | High-volume, simple data parsing | 30 | 1,500 |
 | Pro | `gemini-2.5-pro` | Complex reasoning, advanced coding | 5 | 50 |
 
-  Config lives in `GEMINI_MODELS_CONFIG` (top of `js/app.js`) and may be overridden by a `gemini_models_config` row in `app_config`. Only **RPD** is enforced for model availability; RPM is shown for reference.
+  Config lives in `GEMINI_MODELS_CONFIG` (top of `js/app.js`) and is not overridable at runtime. Only **RPD** is enforced for model availability; RPM is shown for reference.
 
 - **Features used:** `system_instruction`, `generationConfig` (temperature, maxOutputTokens), usage metadata (token counts)
 - **Retry logic:** Up to 3 attempts per model on HTTP 429/503 with exponential backoff
