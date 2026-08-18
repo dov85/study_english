@@ -9,20 +9,29 @@ const SUPABASE_ANON_KEY = 'sb_publishable_Zct9fKl_HZOMS49pSiY29w_c8FWjIlr';
 // (supabase/functions/gemini), which proxies the calls. Anything this file holds is public,
 // so a key stored client-side — or in a table the browser can read — is a published key.
 
-// Model config loaded from cloud, with the fallback below matching the quotas actually
-// granted on this key (Google AI Studio -> Rate Limit, checked 2026-08-18).
+// Model list and quotas, verified against Google AI Studio -> Rate Limit and the endpoint
+// strings in ai.google.dev/gemini-api/docs/models (2026-08-18).
 //
-// The daily limits are far smaller than the free-tier numbers this file used to assume:
-// 20 requests/day on the Flash models, not 1,500. gemini-2.5-pro was listed at 5 rpm /
-// 50 rpd but is granted 0/0 on this key — no quota at all — which is why every call to it
-// returned 429. It is removed rather than kept as a permanently failing fallback.
+// This is deliberately NOT loaded from the database. It used to be overridable by a
+// gemini_models_config row in app_config, which meant a stale row silently replaced whatever
+// was in this file — edits here had no effect and the reason was invisible. The list belongs
+// in version control where a change is reviewable.
 //
-// Order is quality first, quota second: the Flash model handles normal use, and the
-// Flash-Lite models take over when its 20 daily requests run out, since they carry 500.
-let GEMINI_MODELS_CONFIG = [
-  { model: 'gemini-3.7-flash',      tier: 'Flash',      bestFor: 'General tasks, best quality available', rpm: 5,  rpd: 20,  tpm: 250000 },
-  { model: 'gemini-3.5-flash-lite', tier: 'Flash-Lite', bestFor: 'High-volume generation',                rpm: 15, rpd: 500, tpm: 250000 },
-  { model: 'gemini-3.1-flash-lite', tier: 'Flash-Lite', bestFor: 'High-volume fallback',                  rpm: 15, rpd: 500, tpm: 250000 }
+// Quotas are much smaller than the published free-tier figures: 20 requests/day on the Flash
+// models, 500 on Flash-Lite. gemini-2.5-pro and gemini-3.1-pro are granted 0/0 on this key,
+// so they are omitted — they could only ever return 429.
+//
+// Order is quality first, volume second. The Flash models are tried while their 20 daily
+// requests last, then the two Flash-Lite models carry 500 each.
+const GEMINI_MODELS_CONFIG = [
+  { model: 'gemini-3.7-flash',       tier: 'Flash',      bestFor: 'Latest and most capable Flash', rpm: 5,  rpd: 20,  tpm: 250000 },
+  { model: 'gemini-3.6-flash',       tier: 'Flash',      bestFor: 'Previous-generation Flash',     rpm: 5,  rpd: 20,  tpm: 250000 },
+  { model: 'gemini-3.5-flash',       tier: 'Flash',      bestFor: 'Legacy Flash',                  rpm: 5,  rpd: 20,  tpm: 250000 },
+  { model: 'gemini-3-flash-preview', tier: 'Flash',      bestFor: 'Gemini 3 Flash (preview)',      rpm: 5,  rpd: 20,  tpm: 250000 },
+  { model: 'gemini-2.5-flash',       tier: 'Flash',      bestFor: 'Price-performance workhorse',   rpm: 5,  rpd: 20,  tpm: 250000 },
+  { model: 'gemini-3.5-flash-lite',  tier: 'Flash-Lite', bestFor: 'High-throughput volume',        rpm: 15, rpd: 500, tpm: 250000 },
+  { model: 'gemini-3.1-flash-lite',  tier: 'Flash-Lite', bestFor: 'High-throughput volume',        rpm: 15, rpd: 500, tpm: 250000 },
+  { model: 'gemini-2.5-flash-lite',  tier: 'Flash-Lite', bestFor: 'Last-resort fallback',          rpm: 10, rpd: 20,  tpm: 250000 }
 ];
 
 // Today's usage cache (loaded from cloud)
@@ -41,29 +50,10 @@ function geminiHeaders() {
   };
 }
 
-// ─── Load secrets & config from Supabase app_config ────
+// The app no longer reads app_config for anything. The Gemini key lives as a secret on the
+// Edge Function and the model list lives in this file, so there is nothing left to fetch.
 async function loadAppConfig() {
-  if (!supabaseClient) return;
-  try {
-    const { data, error } = await supabaseClient
-      .from('app_config')
-      .select('key, value')
-      .in('key', ['gemini_models_config']);
-    if (error) throw error;
-    if (data) {
-      data.forEach(row => {
-        if (row.key === 'gemini_models_config') {
-          try {
-            const parsed = JSON.parse(row.value);
-            if (Array.isArray(parsed) && parsed.length > 0) GEMINI_MODELS_CONFIG = parsed;
-          } catch {}
-        }
-      });
-    }
-    console.log('✅ Config loaded from cloud');
-  } catch (err) {
-    console.error('Failed to load app config:', err);
-  }
+  return;
 }
 
 // ─── Cloud-based Usage Tracking ─────────

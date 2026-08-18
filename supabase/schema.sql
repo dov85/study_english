@@ -16,10 +16,10 @@ create table if not exists public.app_config (
 
 alter table public.app_config enable row level security;
 
+-- No anon policy at all: the client reads nothing from this table. The model list lives in
+-- js/app.js under version control, and the Gemini key is an Edge Function secret.
 drop policy if exists "anon can read app_config" on public.app_config;
 drop policy if exists "anon reads model config only" on public.app_config;
-create policy "anon reads model config only" on public.app_config
-  for select to anon using (key = 'gemini_models_config');
 
 -- Remove the key if an earlier deployment of this schema stored one here.
 delete from public.app_config where key = 'gemini_api_key';
