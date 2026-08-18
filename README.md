@@ -29,9 +29,10 @@ index.html ─── js/app.js ────► Supabase (Postgres + RLS)
                                   (holds the API key)
 ```
 
-Three model families are tried in order with per-model daily quotas tracked in the database:
-Flash, Flash-Lite, then Pro. On a 429 or 503 the client retries, then fails over to the next
-model. Every call is logged to `gemini_logs`, successes and failures alike.
+Eight models are tried in order with per-model daily quotas tracked in the database — five
+Flash models at 20 requests a day each, then the Flash-Lite models at 500. On a 429 or 503
+the client retries, then fails over to the next model. Every call is logged to `gemini_logs`,
+successes and failures alike.
 
 ## Security model
 
