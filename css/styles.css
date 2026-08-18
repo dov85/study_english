@@ -1170,61 +1170,6 @@ body {
   min-width: 180px;
 }
 
-/* ─── Word Picker ──────────────────────────── */
-.word-picker-toolbar {
-  display: flex;
-  gap: 8px;
-  justify-content: center;
-  margin-bottom: 12px;
-}
-
-.word-picker-list {
-  max-height: 320px;
-  overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 8px;
-  margin-bottom: 14px;
-  background: var(--bg);
-}
-
-.word-picker-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 8px;
-  border-bottom: 1px solid var(--border);
-}
-
-.word-picker-item:last-child {
-  border-bottom: none;
-}
-
-.word-picker-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.word-picker-word {
-  font-weight: 700;
-  color: var(--text);
-  direction: ltr;
-}
-
-.word-picker-translation {
-  color: var(--primary);
-  font-weight: 600;
-  direction: rtl;
-}
-
-.word-picker-empty {
-  text-align: center;
-  color: var(--text-muted);
-  padding: 18px 10px;
-}
-
 .manual-word-input {
   display: block;
   width: 100%;

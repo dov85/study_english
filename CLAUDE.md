@@ -13,16 +13,14 @@ See `PROJECT.md` for full documentation (architecture, schema, method lists, flo
 - `css/styles.css` — all styling
 - `supabase/schema.sql` — tables + RLS policies (idempotent, safe to re-run)
 - `scripts/seedBe.js` — seeds "Be / Been / Being" category (self-contained inline data, idempotent)
-- `scripts/seedSupabase.js` — ⚠️ BROKEN: depends on `js/data.js` which was deleted from the repo
-- `scripts/testGemini.js` — dev script to test the Gemini API
 
 ## Backend: Supabase (project `study_english`)
 
 - **URL:** `https://fjliapgwwhplftoxdpyz.supabase.co`
 - Anon (publishable) key is **hardcoded** in `js/app.js` top constants — that is the intended pattern here, not a mistake.
 - Secret (service role) key + Gemini key live in `.env` (used only by `scripts/*.js`). `.env` is gitignored — never commit keys.
-- Tables: `grammar_rules`, `questions` (FK → grammar_rules.category, ON DELETE CASCADE), `vocab_words`, `gemini_logs`, `app_config`. All use RLS with permissive anon policies (single-user app, no auth).
-- **`app_config` holds no secrets.** It previously stored `gemini_api_key`, which the browser read with the publishable key — that published the key to anyone who opened `js/app.js`. The key is now a secret on the `gemini` Edge Function, and the table's anon policy is restricted to the single `gemini_models_config` row. Never put a credential in a table the client can read.
+- Tables: `grammar_rules`, `questions` (FK → grammar_rules.category, ON DELETE CASCADE), `vocab_words`, `gemini_logs`. All use RLS with permissive anon policies (single-user app, no auth).
+- **The `app_config` table was dropped.** It held the Gemini key (readable by anyone with the publishable key) and a model-list override that silently replaced the code. The key is now an Edge Function secret and the model list lives in `js/app.js`. Never put a credential in a table the client can read.
 
 ## Gemini AI integration
 
@@ -30,7 +28,7 @@ See `PROJECT.md` for full documentation (architecture, schema, method lists, flo
 - Eight models in `GEMINI_MODELS_CONFIG` (top of `js/app.js`), quotas verified against AI Studio's Rate Limit page: five Flash models at 5rpm/**20rpd** each, then `gemini-3.5-flash-lite` and `gemini-3.1-flash-lite` at 15rpm/**500rpd**, then `gemini-2.5-flash-lite`. About 1,120 requests/day in total. The Pro models are granted 0/0 on this key and are omitted. **The list is not loaded from the database** — an `app_config` row used to override it silently, so edits to this file had no effect.
 - Multi-model fallback with per-model daily quotas (RPD is enforced; RPM is display-only), tracked in the cloud via `gemini_logs` (not localStorage)
 - Retries on 429/503 with backoff; failed attempts are also logged (`success: false`)
-- **Raw logging:** every call stores `raw_request` + `raw_response` in `gemini_logs`, shown expandable in the History modal. Requires the two columns — run `supabase/add_raw_logging.sql` in the SQL editor. Code falls back gracefully (`supportsRawLogColumns` flag) if they're missing.
+- **Raw logging:** every call stores `raw_request` + `raw_response` in `gemini_logs`, shown expandable in the History modal. The columns are created by `schema.sql`. Code falls back gracefully (`supportsRawLogColumns` flag) if they're missing.
 
 ## Conventions & gotchas
 

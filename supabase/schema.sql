@@ -1,28 +1,10 @@
 -- Create extension if not exists
 create extension if not exists "uuid-ossp";
 
--- App configuration (non-secret settings only)
---
--- SECURITY: this table must never hold a secret. It previously stored the Gemini API key
--- and granted anon SELECT, which published the key to anyone who read js/app.js — the
--- publishable key and project URL are in there by design. The key now lives as a secret on
--- the `gemini` Edge Function. The policy below is deliberately restricted to the one
--- non-sensitive row the client needs.
-create table if not exists public.app_config (
-  key text primary key,
-  value text not null,
-  created_at timestamptz not null default now()
-);
-
-alter table public.app_config enable row level security;
-
--- No anon policy at all: the client reads nothing from this table. The model list lives in
--- js/app.js under version control, and the Gemini key is an Edge Function secret.
-drop policy if exists "anon can read app_config" on public.app_config;
-drop policy if exists "anon reads model config only" on public.app_config;
-
--- Remove the key if an earlier deployment of this schema stored one here.
-delete from public.app_config where key = 'gemini_api_key';
+-- The app_config table is gone. It only ever held the Gemini API key and a model-list
+-- override, and both were mistakes: the key is now an Edge Function secret, and the model
+-- list belongs in version control rather than in a row that silently overrides the code.
+drop table if exists public.app_config;
 
 -- Create tables
 create table if not exists public.grammar_rules (

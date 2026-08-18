@@ -43,7 +43,7 @@
                        └─────────────────────┘
 ```
 
-**No build tools.** Pure client-side app served as static files. The Supabase JS SDK is loaded from CDN. Node.js is only used for the seed script (`scripts/seedSupabase.js`).
+**No build tools.** Pure client-side app served as static files. The Supabase JS SDK is loaded from CDN. Node.js is only used for the seed script (`scripts/seedBe.js`).
 
 ---
 
@@ -60,9 +60,7 @@ study-english/
 │   ├── app.js               # Main application logic (~1,750 lines) — EnglishLearningApp class
 │   └── data.js              # Local seed data — 350 questions + 7 grammar rule sets (fallback)
 ├── scripts/
-│   ├── seedSupabase.js      # Node.js script to seed Supabase from data.js
 │   ├── seedBe.js            # Node.js script to seed "Be / Been / Being" category
-│   └── testGemini.js        # Dev/debug script to test Gemini API
 └── supabase/
     └── schema.sql           # Database schema + RLS policies
 ```
@@ -246,25 +244,12 @@ All styling. Major sections:
 - Flashcards pronunciation line + AI pronunciation status
 - Responsive breakpoints
 
-### `scripts/seedSupabase.js`
-
-Node.js script that:
-1. Loads `data.js` via `vm.Script` sandboxing
-2. Generates deterministic UUIDs via SHA-1 hashing
-3. Wipes both Supabase tables
-4. Inserts grammar rules and questions in chunks of 75
-5. Uses **service role key** for elevated permissions
-
 ### `scripts/seedBe.js`
 
 Node.js script that seeds the "Be / Been / Being" category:
 1. Inserts grammar rule with 4 detailed rule sections (be, been, being, comparison)
 2. Inserts 50 curated questions covering modals, infinitives, perfect tenses, continuous passive, gerunds
 3. Uses upsert for grammar rule (idempotent)
-
-### `scripts/testGemini.js`
-
-Dev/debug script — sends a single prompt to Gemini, validates the JSON response structure.
 
 ### `supabase/schema.sql`
 
@@ -304,8 +289,6 @@ PostgreSQL DDL: creates tables, enables RLS, defines access policies.
 | `loadGrammarRules()` | Same pattern for grammar rules |
 | `fetchQuestionsFromSupabase()` | `SELECT *` from questions, ordered by category |
 | `fetchGrammarRulesFromSupabase()` | `SELECT *` from grammar_rules, ordered by category |
-| `seedSupabaseWithLocalData()` | Inserts local questions in chunks of 75 |
-| `seedGrammarRulesWithLocalData()` | Inserts local rules in chunks of 50 |
 
 #### State Management
 | Method | Description |

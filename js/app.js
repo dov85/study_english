@@ -56,12 +56,6 @@ function geminiHeaders() {
   };
 }
 
-// The app no longer reads app_config for anything. The Gemini key lives as a secret on the
-// Edge Function and the model list lives in this file, so there is nothing left to fetch.
-async function loadAppConfig() {
-  return;
-}
-
 // ─── Cloud-based Usage Tracking ─────────
 async function getTodayUsageFromCloud(forceRefresh = false) {
   if (!supabaseClient) return {};
@@ -162,7 +156,6 @@ class EnglishLearningApp {
     this.currentFlashcards = [];
     this.currentFlashcardIndex = 0;
     this.flashcardShowTranslation = false;
-    this.wordPickerCategory = null;
     this.supabase = supabaseClient;
     this.loadedFromRemote = false;
     this.grammarRules = {};
@@ -173,7 +166,6 @@ class EnglishLearningApp {
 
   async initializeApp() {
     this.showLoadingState('Loading configuration…');
-    await loadAppConfig();
     this.showLoadingState('Loading questions from cloud…');
     await Promise.all([this.loadQuestions(), this.loadGrammarRules()]);
     await this.init();
@@ -199,33 +191,15 @@ class EnglishLearningApp {
     return [];
   }
 
-  getLocalQuestionSeed() {
-    return (typeof questionsData !== 'undefined' && Array.isArray(questionsData)) ? questionsData : [];
-  }
-
-  getLocalGrammarRules() {
-    return (typeof grammarRules !== 'undefined' && grammarRules && typeof grammarRules === 'object')
-      ? grammarRules
-      : {};
-  }
-
   async loadQuestions() {
-    const localSeed = this.getLocalQuestionSeed();
-
     if (!this.supabase) {
       this.loadedFromRemote = false;
-      this.prepareQuestionCatalog(localSeed);
+      this.prepareQuestionCatalog([]);
       return;
     }
 
     try {
-      let remoteData = await this.fetchQuestionsFromSupabase();
-
-      if ((!remoteData || remoteData.length === 0) && localSeed.length > 0) {
-        this.showLoadingState('Uploading local questions to Supabase…');
-        await this.seedSupabaseWithLocalData(localSeed);
-        remoteData = await this.fetchQuestionsFromSupabase();
-      }
+      const remoteData = await this.fetchQuestionsFromSupabase();
 
       if (remoteData && remoteData.length > 0) {
         this.loadedFromRemote = true;
@@ -247,25 +221,17 @@ class EnglishLearningApp {
     }
 
     this.loadedFromRemote = false;
-    this.prepareQuestionCatalog(localSeed);
+    this.prepareQuestionCatalog([]);
   }
 
   async loadGrammarRules() {
-    const localRules = this.getLocalGrammarRules();
-
     if (!this.supabase) {
-      this.prepareGrammarRules(localRules);
+      this.prepareGrammarRules({});
       return;
     }
 
     try {
-      let remoteRules = await this.fetchGrammarRulesFromSupabase();
-
-      if ((!remoteRules || remoteRules.length === 0) && Object.keys(localRules).length > 0) {
-        await this.seedGrammarRulesWithLocalData(localRules);
-        remoteRules = await this.fetchGrammarRulesFromSupabase();
-      }
-
+      const remoteRules = await this.fetchGrammarRulesFromSupabase();
       if (remoteRules && remoteRules.length > 0) {
         this.prepareGrammarRules(remoteRules);
         return;
@@ -274,7 +240,7 @@ class EnglishLearningApp {
       console.error('Failed to load grammar rules from Supabase', error);
     }
 
-    this.prepareGrammarRules(localRules);
+    this.prepareGrammarRules({});
   }
 
   async fetchQuestionsFromSupabase() {
@@ -288,29 +254,6 @@ class EnglishLearningApp {
     return data || [];
   }
 
-  async seedSupabaseWithLocalData(localData) {
-    if (!this.supabase || !Array.isArray(localData) || localData.length === 0) return;
-
-    const payload = localData.map(item => ({
-      category: item.category,
-      sentence: item.sentence,
-      correct_answer: item.correct_answer,
-      options: this.normalizeOptions(item.options),
-      explanation: item.explanation || '',
-      translations: item.translations || {}
-    }));
-
-    const chunkSize = 75;
-    for (let i = 0; i < payload.length; i += chunkSize) {
-      const chunk = payload.slice(i, i + chunkSize);
-      const { error } = await this.supabase.from('questions').insert(chunk);
-      if (error) {
-        console.error('Failed to seed Supabase', error);
-        throw error;
-      }
-    }
-  }
-
   async fetchGrammarRulesFromSupabase() {
     if (!this.supabase) return [];
     const { data, error } = await this.supabase
@@ -320,29 +263,6 @@ class EnglishLearningApp {
 
     if (error) throw error;
     return data || [];
-  }
-
-  async seedGrammarRulesWithLocalData(localRules) {
-    if (!this.supabase || !localRules || typeof localRules !== 'object') return;
-
-    const payload = Object.entries(localRules).map(([category, ruleSet]) => ({
-      category,
-      title: ruleSet.title || category,
-      icon: ruleSet.icon || '📚',
-      rules: Array.isArray(ruleSet.rules) ? ruleSet.rules : []
-    }));
-
-    if (payload.length === 0) return;
-
-    const chunkSize = 50;
-    for (let i = 0; i < payload.length; i += chunkSize) {
-      const chunk = payload.slice(i, i + chunkSize);
-      const { error } = await this.supabase.from('grammar_rules').insert(chunk);
-      if (error) {
-        console.error('Failed to seed grammar rules', error);
-        throw error;
-      }
-    }
   }
 
   async init() {
@@ -459,14 +379,6 @@ class EnglishLearningApp {
     bindClick('create-cat-submit-btn', () => this.handleCreateCategory());
 
     // Word Picker modal
-    bindClick('word-picker-overlay', (e) => {
-      if (e.target === e.currentTarget) this.closeWordPickerModal();
-    });
-    bindClick('word-picker-close-btn', () => this.closeWordPickerModal());
-    bindClick('word-picker-cancel-btn', () => this.closeWordPickerModal());
-    bindClick('word-picker-select-all-btn', () => this.toggleWordPickerSelection(true));
-    bindClick('word-picker-clear-btn', () => this.toggleWordPickerSelection(false));
-    bindClick('word-picker-save-btn', () => this.saveWordPickerSelection());
 
     // Flashcards screen
     bindClick('flashcards-back-btn', () => this.goToCategories());
@@ -2581,100 +2493,6 @@ Return ONLY a valid JSON array with ${amount} objects. No markdown, no explanati
     return data || [];
   }
 
-  getWordsFromCategory(categoryName) {
-    const categoryQuestions = this.questionCatalog.filter(q => q.category === categoryName);
-    const wordsMap = new Map();
-
-    categoryQuestions.forEach(question => {
-      const translations = question.translations || {};
-      Object.entries(translations).forEach(([rawWord, translation]) => {
-        const word = this.normalizeWord(rawWord);
-        const tr = String(translation || '').trim();
-        if (!word || !tr) return;
-        if (!wordsMap.has(word)) {
-          wordsMap.set(word, {
-            word,
-            translation: tr,
-            sourceCategory: categoryName
-          });
-        }
-      });
-    });
-
-    return [...wordsMap.values()].sort((a, b) => a.word.localeCompare(b.word));
-  }
-
-  showWordPickerModal(categoryName) {
-    this.wordPickerCategory = categoryName;
-    const words = this.getWordsFromCategory(categoryName);
-
-    document.getElementById('word-picker-category-name').textContent = categoryName;
-
-    const listEl = document.getElementById('word-picker-list');
-    listEl.innerHTML = '';
-
-    if (words.length === 0) {
-      listEl.innerHTML = '<div class="word-picker-empty">No translated words were found in this category yet.</div>';
-      document.getElementById('word-picker-overlay').classList.add('show');
-      return;
-    }
-
-    const existingKeys = new Set(
-      this.vocabDeck
-        .filter(item => item.sourceCategory === categoryName)
-        .map(item => this.getVocabEntryKey(item))
-    );
-
-    words.forEach((item, index) => {
-      const key = this.getVocabEntryKey(item);
-      const row = document.createElement('label');
-      row.className = 'word-picker-item';
-      row.innerHTML = `
-        <span class="word-picker-left">
-          <input type="checkbox" class="word-picker-checkbox" data-word="${this.escapeHtml(item.word)}" data-translation="${this.escapeHtml(item.translation)}" ${existingKeys.has(key) ? 'checked' : ''}>
-          <span class="word-picker-word">${this.escapeHtml(item.word)}</span>
-        </span>
-        <span class="word-picker-translation">${this.escapeHtml(item.translation)}</span>
-      `;
-      row.htmlFor = `word-picker-${index}`;
-      const input = row.querySelector('.word-picker-checkbox');
-      if (input) input.id = `word-picker-${index}`;
-      listEl.appendChild(row);
-    });
-
-    document.getElementById('word-picker-overlay').classList.add('show');
-  }
-
-  closeWordPickerModal() {
-    document.getElementById('word-picker-overlay').classList.remove('show');
-    this.wordPickerCategory = null;
-  }
-
-  toggleWordPickerSelection(checked) {
-    document.querySelectorAll('.word-picker-checkbox').forEach(cb => {
-      cb.checked = checked;
-    });
-  }
-
-  async saveWordPickerSelection() {
-    if (!this.wordPickerCategory) {
-      this.closeWordPickerModal();
-      return;
-    }
-
-    const selected = [...document.querySelectorAll('.word-picker-checkbox:checked')].map(cb => ({
-      word: this.normalizeWord(cb.dataset.word || ''),
-      translation: String(cb.dataset.translation || '').trim(),
-      sourceCategory: this.wordPickerCategory
-    })).filter(item => item.word && item.translation);
-
-    for (const item of selected) {
-      await this.addWordToDeck(item.word, item.translation, item.sourceCategory);
-    }
-
-    this.closeWordPickerModal();
-    this.renderCategoryScreen();
-  }
 
   openFlashcardsScreen() {
     this.currentFlashcards = [...this.vocabDeck];

@@ -102,11 +102,9 @@ js/app.js                      all application logic, one class
 css/styles.css                 all styling
 supabase/schema.sql            tables and RLS policies
 supabase/functions/gemini/     Edge Function that proxies Gemini
-scripts/                       seeding and dev scripts
+scripts/seedBe.js              seeds one starter category
 PROJECT.md                     full documentation
 ```
-
-`scripts/seedSupabase.js` is broken — it depends on a `js/data.js` that no longer exists.
 
 ## License
 
