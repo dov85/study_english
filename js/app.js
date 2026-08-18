@@ -2,8 +2,8 @@
 // English Learning App - Main Logic
 // ============================
 
-const SUPABASE_URL = 'https://utafnfhqiiwtisptminz.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_fQSNmhWNylFI6eoCQQm8Ng_zVkiUZoc';
+const SUPABASE_URL = 'https://fjliapgwwhplftoxdpyz.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_Zct9fKl_HZOMS49pSiY29w_c8FWjIlr';
 
 // The Gemini key is NOT held here. It lives as a secret on the `gemini` Edge Function
 // (supabase/functions/gemini), which proxies the calls. Anything this file holds is public,

@@ -103,7 +103,7 @@ study-english/
 
 ## Database Schema (Supabase)
 
-**Project URL:** `https://utafnfhqiiwtisptminz.supabase.co` (Supabase project: `study_english`)
+**Project URL:** `https://fjliapgwwhplftoxdpyz.supabase.co` (Supabase project: `study_english`)
 
 ### Table: `grammar_rules`
 

@@ -18,7 +18,7 @@ See `PROJECT.md` for full documentation (architecture, schema, method lists, flo
 
 ## Backend: Supabase (project `study_english`)
 
-- **URL:** `https://utafnfhqiiwtisptminz.supabase.co` (recreated 2026-07-08; the old `fjliapgwwhplftoxdpyz` project was deleted, all its data is gone)
+- **URL:** `https://fjliapgwwhplftoxdpyz.supabase.co`
 - Anon (publishable) key is **hardcoded** in `js/app.js` top constants — that is the intended pattern here, not a mistake.
 - Secret (service role) key + Gemini key live in `.env` (used only by `scripts/*.js`). `.env` is gitignored — never commit keys.
 - Tables: `grammar_rules`, `questions` (FK → grammar_rules.category, ON DELETE CASCADE), `vocab_words`, `gemini_logs`, `app_config`. All use RLS with permissive anon policies (single-user app, no auth).
